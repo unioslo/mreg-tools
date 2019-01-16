@@ -1,0 +1,15 @@
+[default]
+workdir = /tmp/get-zonefiles
+destdir = /tmp/dstdir
+extradir = /tmp/extra
+
+[mreg]
+mregurl = http://localhost:8000/
+mreguser = foo
+mregpass = bar
+
+[zones]
+example.org
+0.10.in-addr.arpa
+# Can use "zone=name" to force destination name
+1.10.in-addr.arpa=10.1
