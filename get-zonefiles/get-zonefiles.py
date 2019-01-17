@@ -27,6 +27,27 @@ def error(msg, code=os.EX_UNAVAILABLE):
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(code)
 
+def mkdir(path):
+    try:
+        os.makedirs(path, exist_ok=True)
+    except PermissionError as e:
+        error(f"{e}", code=e.errno)
+
+def setup_logging():
+    if cfg['default']['logdir']:
+        logdir = cfg['default']['logdir']
+    else:
+        error("No logdir defined in config file")
+
+    mkdir(logdir)
+    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
+    filepath=opj(logdir, filename)
+    logging.basicConfig(
+                    format='%(asctime)s %(levelname)-8s: %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    filename=filepath,
+                    level=logging.INFO)
+
 
 def timing(f):
     @wraps(f)
@@ -140,6 +161,9 @@ def get_zone(zone, name):
 
 @timing
 def get_zonefiles(force):
+    for dir in ('destdir', 'workdir',):
+        mkdir(cfg['default'][dir])
+
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
@@ -165,18 +189,12 @@ def main():
                         action='store_true',
                         default=False,
                         help='force update of all zones')
-    parser.add_argument('--logfile',
-                        default='logfile',
-                        help='path to logfile (default: logfile)')
     args = parser.parse_args()
 
-    logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s: %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename=args.logfile,
-                    level=logging.INFO)
     cfg = configparser.ConfigParser(allow_no_value=True)
     cfg.read(args.config)
+
+    setup_logging()
 
     for i in ('default', 'mreg', 'zones'):
         if i not in cfg:

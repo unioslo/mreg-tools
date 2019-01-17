@@ -1,7 +1,8 @@
 [default]
-workdir = /tmp/get-zonefiles
-destdir = /tmp/dstdir
-extradir = /tmp/extra
+workdir = /mreg/workdir
+destdir = /mreg/dstdir
+logdir = /mreg/logdir
+extradir = /mreg/extra
 
 [mreg]
 gurl = http://localhost:8000/
