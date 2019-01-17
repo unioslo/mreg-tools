@@ -55,7 +55,7 @@ def get(url: str) -> requests.Response:
 
 def create_url(path):
     # XXX: add authentication / API-key
-    url = cfg['mreg']['mregurl'] + path
+    url = cfg['mreg']['url'] + path
     return url
 
 

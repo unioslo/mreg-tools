@@ -4,9 +4,9 @@ destdir = /tmp/dstdir
 extradir = /tmp/extra
 
 [mreg]
-mregurl = http://localhost:8000/
-mreguser = foo
-mregpass = bar
+gurl = http://localhost:8000/
+user = foo
+passwd = bar
 
 [zones]
 example.org
