@@ -15,12 +15,10 @@ from functools import wraps
 from os.path import join as opj
 from time import time
 
-
 # replace in python 3.7 with datetime.fromisoformat
 from iso8601 import parse_date
 
-cfg = None
-
+session = requests.Session()
 
 def error(msg, code=os.EX_UNAVAILABLE):
     logging.error(msg)
@@ -60,10 +58,23 @@ def timing(f):
     return wrap
 
 
-def get(url: str) -> requests.Response:
-    result = requests.get(url)
+def update_token():
+    tokenurl = cfg['mreg']['url'] + "api/token-auth/"
+    if 'user' not in cfg['mreg']:
+        error("Need username in configfile")
+    elif 'password' not in cfg['mreg']:
+        error("Need password in configfile")
+    user = cfg['mreg']['user']
+    password = cfg['mreg']['password']
+    result = requests.post(tokenurl, {'username': user, 'password': password})
+    result_check(result, "post", tokenurl)
+    token = result.json()['token']
+    session.headers.update({"Authorization": f"Token {token}"})
+
+
+def result_check(result, type, url):
     if not result.ok:
-        message = f"GET \"{url}\": {result.status_code}: {result.reason}"
+        message = f"{type} \"{url}\": {result.status_code}: {result.reason}"
         try:
             body = result.json()
         except ValueError:
@@ -71,13 +82,23 @@ def get(url: str) -> requests.Response:
         else:
             message += "\n{}".format(json.dumps(body, indent=2))
         error(message)
+
+
+def request_wrapper(type, path, data=None, first=True):
+    url = cfg['mreg']['url'] + path
+    result = getattr(session, type)(url)
+
+    if first and result.status_code == 401:
+        update_token()
+        return request_wrapper(type, path, data=data)
+    else:
+        result_check(result, type.upper(), url)
+
     return result
 
 
-def create_url(path):
-    # XXX: add authentication / API-key
-    url = cfg['mreg']['url'] + path
-    return url
+def get(path: str) -> requests.Response:
+    return request_wrapper("get", path)
 
 
 def get_old_zoneinfo(name):
@@ -100,11 +121,11 @@ def write_old_zoneinfo(name, zoneinfo):
 
 
 def get_zonefile(zone):
-    return get(create_url(f"zonefiles/{zone}")).text
+    return get(f"zonefiles/{zone}").text
 
 
 def get_zoneinfo(zone):
-    return get(create_url(f"zones/{zone}")).json()
+    return get(f"zones/{zone}").json()
 
 
 def get_extradata(name):
@@ -194,12 +215,11 @@ def main():
     cfg = configparser.ConfigParser(allow_no_value=True)
     cfg.read(args.config)
 
-    setup_logging()
-
     for i in ('default', 'mreg', 'zones'):
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
+    setup_logging()
     get_zonefiles(args.force)
 
 

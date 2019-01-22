@@ -5,9 +5,9 @@ logdir = /mreg/logdir
 extradir = /mreg/extra
 
 [mreg]
-gurl = http://localhost:8000/
+url = http://localhost:8000/
 user = foo
-passwd = bar
+password = bar
 
 [zones]
 example.org
