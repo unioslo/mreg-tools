@@ -255,7 +255,7 @@ def compare_with_mreg(ipversion, import_data, current_subnets):
     print(f"subnets_shrink: {len(subnets_shrink)}  {subnets_shrink}")
     print(f"subnets_delete: {len(subnets_delete)} {subnets_delete}")
     print(f"subnets_post: {len(subnets_post)} {subnets_post}")
-    subnets_patch = set()
+    subnets_patch = defaultdict(dict)
     subnets_keep = import_data.keys() & current_subnets.keys()
     print(f"subnets_keep: {len(subnets_keep)}")
 
@@ -281,11 +281,9 @@ def compare_with_mreg(ipversion, import_data, current_subnets):
     for subnet in subnets_keep:
         current_data = current_subnets[subnet]
         new_data = import_data[subnet]
-        if (new_data['description'] != current_data['description']
-                or new_data['vlan'] != current_data['vlan']
-                or new_data['category'] != current_data['category']
-                or new_data['location'] != current_data['location']):
-            subnets_patch.add(subnet)
+        for i in ('description', 'vlan', 'category', 'location'):
+            if new_data[i] != current_data[i]:
+                subnets_patch[subnet][i] = new_data[i]
 
     print(f"current_subnets = {len(current_subnets)}")
 
@@ -340,15 +338,11 @@ def update_mreg(ipversion, num_current, import_data, subnets_post, subnets_patch
                  location=data['location'])
         logging.info(f"POST {basepath} - {subnet} - {data['description']}")
 
-    for subnet in subnets_patch:
+    for subnet, data in subnets_patch.items():
         path = f"{basepath}{subnet}"
-        data = import_data[subnet]
         if not args.dryrun:
-            patch(path, description=data['description'],
-                  vlan=data['vlan'],
-                  category=data['category'],
-                  location=data['location'])
-        logging.info(f"PATCH {path}")
+            patch(path, **data)
+        logging.info(f"PATCH {path} {data}")
 
     logging.info("------ API REQUESTS END ------")
 
