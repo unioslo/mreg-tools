@@ -117,7 +117,11 @@ def delete(path: str) -> requests.Response:
     return _request_wrapper("delete", path)
 
 
-def read_tags(filename):
+def read_tags():
+    if 'tagsfile' in cfg['default']:
+        filename = cfg['default']['tagsfile']
+    else:
+        return
     with open(filename, 'r') as tagfile:
         flag_re = re.compile("""^
                              ((?P<location>[a-zA-Z0-9]+)+\s+:\s+Plassering)
@@ -141,16 +145,15 @@ def read_tags(filename):
 def overlap_check(network, tree, points):
     # Uses an IntervalTree to do fast lookups of overlapping networks.
     #
-    # For one-host networks, as ipv4 /32 and ipv6 /128, IntervalTree causes a
-    # bit extra work as it does not include upper bound in intervals when
-    # searching, thus point search failes for a broadcast address.
-
     begin = int(network.network_address)
     end = int(network.broadcast_address)
     if tree[begin:end]:
         overlap = tree[begin:end]
         data = [str(i.data) for i in overlap]
         error(f"Network {network} overlaps {data}")
+        # For one-host networks, as ipv4 /32 and ipv6 /128, IntervalTree causes a
+        # bit extra work as it does not include upper bound in intervals when
+        # searching, thus point search failes for a broadcast address.
     elif network.version == 4 and network.prefixlen == 32 or \
          network.version == 6 and network.prefixlen == 128:
         if begin in points:
@@ -347,7 +350,7 @@ def update_mreg(ipversion, num_current, import_data, subnets_post, subnets_patch
     logging.info("------ API REQUESTS END ------")
 
 def sync_with_mreg(args):
-    read_tags(cfg['default']['tagsfile'])
+    read_tags()
     read_subnets(args.subnetfile)
     current_subnets = defaultdict(dict)
     res = get(basepath).json()
