@@ -59,7 +59,7 @@ def timing(f):
 
 
 def update_token():
-    tokenurl = cfg['mreg']['url'] + "api/token-auth/"
+    tokenurl = requests.compat.urljoin(cfg['mreg']['url'], "/api/token-auth/")
     if 'user' not in cfg['mreg']:
         error("Need username in configfile")
     elif 'password' not in cfg['mreg']:
@@ -84,13 +84,13 @@ def result_check(result, type, url):
         error(message)
 
 
-def request_wrapper(type, path, data=None, first=True):
-    url = cfg['mreg']['url'] + path
-    result = getattr(session, type)(url)
+def _request_wrapper(type, path, data=None, first=True):
+    url = requests.compat.urljoin(cfg['mreg']['url'], path)
+    result = getattr(session, type)(url, data=data)
 
     if first and result.status_code == 401:
         update_token()
-        return request_wrapper(type, path, data=data)
+        return _request_wrapper(type, path, data=data)
     else:
         result_check(result, type.upper(), url)
 
@@ -98,7 +98,7 @@ def request_wrapper(type, path, data=None, first=True):
 
 
 def get(path: str) -> requests.Response:
-    return request_wrapper("get", path)
+    return _request_wrapper("get", path)
 
 
 def get_old_zoneinfo(name):
