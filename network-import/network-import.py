@@ -84,13 +84,15 @@ def result_check(result, type, url):
         error(message)
 
 
-def _request_wrapper(type, path, first=True, **data):
+def _request_wrapper(type, path, data=None, first=True):
+    headers = {'content-type': 'application/json'}
     url = requests.compat.urljoin(cfg['mreg']['url'], path)
-    result = getattr(session, type)(url, data=data)
+    jsondata = json.dumps(data)
+    result = getattr(session, type)(url, data=jsondata, headers=headers)
 
     if first and result.status_code == 401:
         update_token()
-        return _request_wrapper(type, path, first=False, **data)
+        return _request_wrapper(type, path, data=data, first=False)
 
     result_check(result, type.upper(), url)
     return result
@@ -101,14 +103,14 @@ def get(path: str) -> requests.Response:
     return _request_wrapper("get", path)
 
 
-def post(path: str, **kwargs) -> requests.Response:
+def post(path: str, data) -> requests.Response:
     """Uses requests to make a post request. Assumes that all kwargs are data fields"""
-    return _request_wrapper("post", path, **kwargs)
+    return _request_wrapper("post", path, data)
 
 
-def patch(path: str, **kwargs) -> requests.Response:
+def patch(path: str, data) -> requests.Response:
     """Uses requests to make a patch request. Assumes that all kwargs are data fields"""
-    return _request_wrapper("patch", path, **kwargs)
+    return _request_wrapper("patch", path, data)
 
 
 def delete(path: str) -> requests.Response:
@@ -277,11 +279,11 @@ def shrink_networks(shrink, import_data, args):
             if first:
                 path = f"{basepath}{oldnet}"
                 if not args.dryrun:
-                    patch(path, **newdata)
+                    patch(path, newdata)
                 first = False
                 logging.info(f"PATCHED {oldnet} to {newdata['range']}")
             elif not args.dryrun:
-                post(basepath, **newdata)
+                post(basepath, newdata)
 
 
 def read_networks(filename):
@@ -427,7 +429,7 @@ def grow_networks(grow, import_data, dryrun):
                 delete(path)
             logging.info(f"REMOVED {oldnet} to make room for {newnet}")
         if not dryrun:
-            patch(f"{basepath}{replace}", **import_data[newnet])
+            patch(f"{basepath}{replace}", import_data[newnet])
         logging.info(f"GREW {replace} to {newnet}")
 
 
@@ -459,13 +461,13 @@ def update_mreg(import_data, args, *changes):
     for network in networksort(networks_post):
         data = import_data[network]
         if not args.dryrun:
-            post(basepath, **data)
+            post(basepath, data)
         logging.info(f"POST {basepath} - {network} - {data['description']}")
 
     for network, data in networks_patch.items():
         path = f"{basepath}{network}"
         if not args.dryrun:
-            patch(path, **data)
+            patch(path, data)
         logging.info(f"PATCH {path} {data}")
 
     logging.info("------ API REQUESTS END ------")
