@@ -141,14 +141,15 @@ def get_extradata(name):
     return None
 
 
-def update_zone(zone, name):
+def update_zone(zone, name, zoneinfo):
     old_zoneinfo = get_old_zoneinfo(name)
     if old_zoneinfo:
         old_updated_at = parse_date(old_zoneinfo['updated_at'])
         old_serial_uat = parse_date(old_zoneinfo['serialno_updated_at'])
-        zoneinfo = get_zoneinfo(zone)
         updated_at = parse_date(zoneinfo['updated_at'])
-        if old_updated_at == updated_at:
+        if zoneinfo['updated']:
+            return True
+        elif old_updated_at == updated_at:
             logging.info(f"{name}: unchanged updated_at: {updated_at}")
             return False
         # mreg will only update the serialnumber once per minute, so no need to
@@ -181,6 +182,15 @@ def get_zone(zone, name):
 
 
 @timing
+def get_current_zoneinfo():
+    zoneinfo = dict()
+    ret = get("/zones/")
+    for zone in ret.json():
+        zoneinfo[zone['name']] = zone
+    return zoneinfo
+
+
+@timing
 def get_zonefiles(force):
     for dir in ('destdir', 'workdir',):
         mkdir(cfg['default'][dir])
@@ -188,12 +198,15 @@ def get_zonefiles(force):
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
+        allzoneinfo = get_current_zoneinfo()
         for zone in cfg['zones']:
+            if zone not in allzoneinfo:
+                error(f"Zone {zone} not in mreg")
             if cfg['zones'][zone]:
                 name = cfg['zones'][zone]
             else:
                 name = zone
-            if force or update_zone(zone, name):
+            if force or update_zone(zone, name, allzoneinfo[zone]):
                 get_zone(zone, name)
         lock.release()
     else:
