@@ -120,14 +120,6 @@ def write_old_zoneinfo(name, zoneinfo):
         error(f"No permission to write to {filename}")
 
 
-def get_zonefile(zone):
-    return get(f"zonefiles/{zone}").text
-
-
-def get_zoneinfo(zone):
-    return get(f"zones/{zone}").json()
-
-
 def get_extradata(name):
     if cfg['default']['extradir']:
         extrafile = opj(cfg['default']['extradir'], f"{name}_extra")
@@ -165,16 +157,20 @@ def update_zone(zone, name, zoneinfo):
 
 @timing
 def get_zone(zone, name):
-    zonefile = get_zonefile(zone)
-    zoneinfo = get_zoneinfo(zone)
+    zonefile = get(f"zonefiles/{zone}").text
+    zoneinfo = get(f"zones/{zone}").json()
     with tempfile.TemporaryFile(dir=cfg['default']['workdir']) as f:
         f.write(zonefile.encode())
-        with open(opj(cfg['default']['destdir'], name), 'wb') as dest:
+        dstfile = opj(cfg['default']['destdir'], name)
+        if os.path.isfile(dstfile):
+            os.rename(dstfile, f"{dstfile}_old")
+        with open(dstfile, 'wb') as dest:
             extradata = get_extradata(name)
             f.seek(0)
             shutil.copyfileobj(f, dest)
             if extradata:
                 dest.write(extradata)
+        os.chmod(dstfile, 0o400)
 
     if zoneinfo['serialno'] % 100 == 99:
         logging.warning(f"{name}: reached max serial (99)")
