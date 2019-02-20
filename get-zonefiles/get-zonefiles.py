@@ -20,16 +20,19 @@ from iso8601 import parse_date
 
 session = requests.Session()
 
+
 def error(msg, code=os.EX_UNAVAILABLE):
     logging.error(msg)
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(code)
+
 
 def mkdir(path):
     try:
         os.makedirs(path, exist_ok=True)
     except PermissionError as e:
         error(f"{e}", code=e.errno)
+
 
 def setup_logging():
     if cfg['default']['logdir']:
@@ -39,7 +42,7 @@ def setup_logging():
 
     mkdir(logdir)
     filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
-    filepath=opj(logdir, filename)
+    filepath = opj(logdir, filename)
     logging.basicConfig(
                     format='%(asctime)s %(levelname)-8s: %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S',
