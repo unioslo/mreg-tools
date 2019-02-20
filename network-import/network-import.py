@@ -511,7 +511,7 @@ def main():
     args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
-    cfg.read(args.config)
+    cfg.read_file(open(args.config), args.config)
 
     setup_logging()
     sync_with_mreg(args)
