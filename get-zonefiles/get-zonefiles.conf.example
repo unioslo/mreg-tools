@@ -3,6 +3,8 @@ workdir = /mreg/workdir
 destdir = /mreg/dstdir
 logdir = /mreg/logdir
 extradir = /mreg/extra
+#postcommand must be in json-friendly format
+#postcommand = ["sudo", "/path/to/script" ]
 
 [mreg]
 url = http://localhost:8000/

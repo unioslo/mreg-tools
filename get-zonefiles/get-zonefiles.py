@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -197,6 +198,7 @@ def get_zonefiles(force):
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
+        updated = False
         allzoneinfo = get_current_zoneinfo()
         for zone in cfg['zones']:
             if zone not in allzoneinfo:
@@ -206,7 +208,11 @@ def get_zonefiles(force):
             else:
                 name = zone
             if force or update_zone(zone, name, allzoneinfo[zone]):
+                updated = True
                 get_zone(zone, name)
+        if updated:
+            if 'postcommand' in cfg['default']:
+                subprocess.run(json.loads(cfg['default']['postcommand']))
         lock.release()
     else:
         logging.warning(f"Could not lock on {lockfile}")
