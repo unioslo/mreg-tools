@@ -210,13 +210,16 @@ def get_zonefiles(force):
             if force or update_zone(zone, name, allzoneinfo[zone]):
                 updated = True
                 get_zone(zone, name)
-        if updated:
-            if 'postcommand' in cfg['default']:
-                subprocess.run(json.loads(cfg['default']['postcommand']))
+        if updated and 'postcommand' in cfg['default']:
+            run_postcommand()
         lock.release()
     else:
         logging.warning(f"Could not lock on {lockfile}")
 
+@timing
+def run_postcommand():
+    command = json.loads(cfg['default']['postcommand'])
+    subprocess.run(command)
 
 def main():
     global cfg
