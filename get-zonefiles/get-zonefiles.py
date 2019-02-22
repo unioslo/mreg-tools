@@ -216,10 +216,12 @@ def get_zonefiles(force):
     else:
         logging.warning(f"Could not lock on {lockfile}")
 
+
 @timing
 def run_postcommand():
     command = json.loads(cfg['default']['postcommand'])
     subprocess.run(command)
+
 
 def main():
     global cfg
