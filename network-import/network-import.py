@@ -142,6 +142,27 @@ def read_tags():
                 error('In {}, wrong format on line: {} - {}'.format(
                     filename, line_number, line))
 
+# From python 3.7 Lib/ipaddress.py.
+def _is_subnet_of(a, b):
+    try:
+	# Always false if one is v4 and the other is v6.
+	if a._version != b._version:
+	    raise TypeError(f"{a} and {b} are not of the same version")
+	return (b.network_address <= a.network_address and
+		b.broadcast_address >= a.broadcast_address)
+    except AttributeError:
+	raise TypeError(f"Unable to test subnet containment "
+			f"between {a} and {b}")
+
+def subnet_of(a, b):
+    """Return True if this network is a subnet of other."""
+    return _is_subnet_of(a, b)
+
+def supernet_of(a, b):
+    """Return True if this network is a supernet of other."""
+    return _is_subnet_of(b, a)
+
+# end backport from Python 3.7 ipaddress
 
 def overlap_check(network, tree, points):
     # Uses an IntervalTree to do fast lookups of overlapping networks.
@@ -371,9 +392,9 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
         existing_net = ipaddress.ip_network(existing)
         for new in networks_post:
             new_net = ipaddress.ip_network(new)
-            if existing_net.subnet_of(new_net):
+            if subnet_of(existing_net, new_net):
                 networks_grow[new].add(existing)
-            elif existing_net.supernet_of(new_net):
+            elif supernet_of(existing_net, new_net):
                 networks_shrink[existing].add(new)
 
     for newnet, oldnets in networks_grow.items():
