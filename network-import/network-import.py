@@ -72,7 +72,7 @@ def update_token():
     session.headers.update({"Authorization": f"Token {token}"})
 
 
-def result_check(result, type, url):
+def result_check(result, type, url, data=None):
     if not result.ok:
         message = f"{type} \"{url}\": {result.status_code}: {result.reason}"
         try:
@@ -81,6 +81,8 @@ def result_check(result, type, url):
             pass
         else:
             message += "\n{}".format(json.dumps(body, indent=2))
+            if data is not None:
+                message += "\n{}".format(json.dumps(data, indent=2))
         error(message)
 
 
@@ -94,13 +96,27 @@ def _request_wrapper(type, path, data=None, first=True):
         update_token()
         return _request_wrapper(type, path, data=data, first=False)
 
-    result_check(result, type.upper(), url)
+    result_check(result, type.upper(), url, data=data)
     return result
 
 
 def get(path: str) -> requests.Response:
     """Uses requests to make a get request."""
     return _request_wrapper("get", path)
+
+
+def get_list(path: str) -> requests.Response:
+    """Uses requests to make a get request.
+       Will iterate over paginated results and return result as list."""
+    ret = []
+    while path:
+        result = _request_wrapper("get", path).json()
+        if 'next' in result:
+            path = result['next']
+            ret.extend(result['results'])
+        else:
+            path = None
+    return ret
 
 
 def post(path: str, data) -> requests.Response:
@@ -216,12 +232,12 @@ def removable(oldnet, newnets=[]):
 
     problem_hosts = dict()
     for ptr in ptrs:
-        host = get(f"/hosts/?ptr_overrides__ipaddress={ptr}").json()
+        host = get_list(f"/hosts/?ptr_overrides__ipaddress={ptr}")
         assert len(host) == 1
         problem_hosts[host[0]['name']] = host[0]
 
     for ip in ips:
-        hosts = get(f"/hosts/?ipaddresses__ipaddress={ip}").json()
+        hosts = get_list(f"/hosts/?ipaddresses__ipaddress={ip}")
         for host in hosts:
             problem_hosts[host['name']] = host
 
@@ -241,7 +257,7 @@ def removable(oldnet, newnets=[]):
             if len(host[i]):
                 not_delete[hostname].append(i)
 
-        naptrs = get(f"/naptrs/?host__id={host['id']}").json()
+        naptrs = get_list(f"/naptrs/?host__id={host['id']}")
         if len(naptrs):
             not_delete[hostname].append("naptrs")
 
@@ -498,7 +514,8 @@ def sync_with_mreg(args):
     read_tags()
     read_networks(args.networkfile)
     mreg_data = defaultdict(dict)
-    for i in get(basepath).json():
+    path = requests.compat.urljoin(basepath, "?page_size=1000")
+    for i in get_list(path):
         network = ipaddress.ip_network(i['range'])
         mreg_data[network.version][i['range']] = i
     for ipversion, import_data in ((4, import_v4), (6, import_v6)):
