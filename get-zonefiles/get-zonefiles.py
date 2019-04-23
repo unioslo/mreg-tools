@@ -19,8 +19,8 @@ from time import time
 # replace in python 3.7 with datetime.fromisoformat
 from iso8601 import parse_date
 
-session = requests.Session()
-
+sys.path.append('..')
+import common.connection
 
 def error(msg, code=os.EX_UNAVAILABLE):
     logging.error(msg)
@@ -60,49 +60,6 @@ def timing(f):
         logging.info(f'func:{f.__name__} args:[{args}, {kw}] took: {te-ts:.4} sec')
         return result
     return wrap
-
-
-def update_token():
-    tokenurl = requests.compat.urljoin(cfg['mreg']['url'], "/api/token-auth/")
-    if 'user' not in cfg['mreg']:
-        error("Need username in configfile")
-    elif 'password' not in cfg['mreg']:
-        error("Need password in configfile")
-    user = cfg['mreg']['user']
-    password = cfg['mreg']['password']
-    result = requests.post(tokenurl, {'username': user, 'password': password})
-    result_check(result, "post", tokenurl)
-    token = result.json()['token']
-    session.headers.update({"Authorization": f"Token {token}"})
-
-
-def result_check(result, type, url):
-    if not result.ok:
-        message = f"{type} \"{url}\": {result.status_code}: {result.reason}"
-        try:
-            body = result.json()
-        except ValueError:
-            pass
-        else:
-            message += "\n{}".format(json.dumps(body, indent=2))
-        error(message)
-
-
-def _request_wrapper(type, path, data=None, first=True):
-    url = requests.compat.urljoin(cfg['mreg']['url'], path)
-    result = getattr(session, type)(url, data=data)
-
-    if first and result.status_code == 401:
-        update_token()
-        return _request_wrapper(type, path, data=data)
-    else:
-        result_check(result, type.upper(), url)
-
-    return result
-
-
-def get(path: str) -> requests.Response:
-    return _request_wrapper("get", path)
 
 
 def get_old_zoneinfo(name):
@@ -161,8 +118,8 @@ def update_zone(zone, name, zoneinfo):
 
 @timing
 def get_zone(zone, name):
-    zonefile = get(f"zonefiles/{zone}").text
-    zoneinfo = get(f"zones/{zone}").json()
+    zonefile = conn.get(f"zonefiles/{zone}").text
+    zoneinfo = conn.get(f"zones/{zone}").json()
     with tempfile.TemporaryFile(dir=cfg['default']['workdir']) as f:
         f.write(zonefile.encode())
         dstfile = opj(cfg['default']['destdir'], name)
@@ -184,7 +141,7 @@ def get_zone(zone, name):
 @timing
 def get_current_zoneinfo():
     zoneinfo = dict()
-    ret = get("/zones/")
+    ret = conn.get("/zones/")
     for zone in ret.json():
         zoneinfo[zone['name']] = zone
     return zoneinfo
@@ -224,7 +181,7 @@ def run_postcommand():
 
 
 def main():
-    global cfg
+    global cfg, conn
     parser = argparse.ArgumentParser(description="Download zonefiles from mreg.")
     parser.add_argument('--config',
                         default='get-zonefiles.conf',
@@ -241,6 +198,8 @@ def main():
     for i in ('default', 'mreg', 'zones'):
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
+
+    conn = common.connection.Connection(cfg['mreg'])
 
     setup_logging()
     get_zonefiles(args.force)

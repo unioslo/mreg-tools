@@ -8,7 +8,7 @@ extradir = /mreg/extra
 
 [mreg]
 url = http://localhost:8000/
-user = foo
+username = foo
 password = bar
 
 [zones]

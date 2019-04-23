@@ -2,7 +2,6 @@ import argparse
 import configparser
 import datetime
 import ipaddress
-import json
 import logging
 import os
 import re
@@ -15,7 +14,10 @@ import requests
 
 from intervaltree import IntervalTree
 
-session = requests.Session()
+sys.path.append('..')
+import common.connection
+
+
 basepath = "/networks/"
 
 mreg_data = {}
@@ -56,82 +58,6 @@ def setup_logging():
                     datefmt='%Y-%m-%d %H:%M:%S',
                     filename=filepath,
                     level=logging.INFO)
-
-
-def update_token():
-    tokenurl = requests.compat.urljoin(cfg['mreg']['url'], "/api/token-auth/")
-    if 'user' not in cfg['mreg']:
-        error("Need username in configfile")
-    elif 'password' not in cfg['mreg']:
-        error("Need password in configfile")
-    user = cfg['mreg']['user']
-    password = cfg['mreg']['password']
-    result = requests.post(tokenurl, {'username': user, 'password': password})
-    result_check(result, "post", tokenurl)
-    token = result.json()['token']
-    session.headers.update({"Authorization": f"Token {token}"})
-
-
-def result_check(result, type, url, data=None):
-    if not result.ok:
-        message = f"{type} \"{url}\": {result.status_code}: {result.reason}"
-        try:
-            body = result.json()
-        except ValueError:
-            pass
-        else:
-            message += "\n{}".format(json.dumps(body, indent=2))
-            if data is not None:
-                message += "\n{}".format(json.dumps(data, indent=2))
-        error(message)
-
-
-def _request_wrapper(type, path, data=None, first=True):
-    headers = {'content-type': 'application/json'}
-    url = requests.compat.urljoin(cfg['mreg']['url'], path)
-    jsondata = json.dumps(data)
-    result = getattr(session, type)(url, data=jsondata, headers=headers)
-
-    if first and result.status_code == 401:
-        update_token()
-        return _request_wrapper(type, path, data=data, first=False)
-
-    result_check(result, type.upper(), url, data=data)
-    return result
-
-
-def get(path: str) -> requests.Response:
-    """Uses requests to make a get request."""
-    return _request_wrapper("get", path)
-
-
-def get_list(path: str) -> requests.Response:
-    """Uses requests to make a get request.
-       Will iterate over paginated results and return result as list."""
-    ret = []
-    while path:
-        result = _request_wrapper("get", path).json()
-        if 'next' in result:
-            path = result['next']
-            ret.extend(result['results'])
-        else:
-            path = None
-    return ret
-
-
-def post(path: str, data) -> requests.Response:
-    """Uses requests to make a post request. Assumes that all kwargs are data fields"""
-    return _request_wrapper("post", path, data)
-
-
-def patch(path: str, data) -> requests.Response:
-    """Uses requests to make a patch request. Assumes that all kwargs are data fields"""
-    return _request_wrapper("patch", path, data)
-
-
-def delete(path: str) -> requests.Response:
-    """Uses requests to make a delete request."""
-    return _request_wrapper("delete", path)
 
 
 def read_tags():
@@ -225,19 +151,19 @@ def removable(oldnet, newnets=[]):
         return res
 
     newnets = [ipaddress.ip_network(i) for i in newnets]
-    ptr_list = get(f"{basepath}{oldnet}/ptroverride_list").json()
-    used_list = get(f"{basepath}{oldnet}/used_list").json()
+    ptr_list = conn.get(f"{basepath}{oldnet}/ptroverride_list").json()
+    used_list = conn.get(f"{basepath}{oldnet}/used_list").json()
     ptrs = ips_not_in_newnets(ptr_list)
     ips = ips_not_in_newnets(used_list)
 
     problem_hosts = dict()
     for ptr in ptrs:
-        host = get_list(f"/hosts/?ptr_overrides__ipaddress={ptr}")
+        host = conn.get_list(f"/hosts/?ptr_overrides__ipaddress={ptr}")
         assert len(host) == 1
         problem_hosts[host[0]['name']] = host[0]
 
     for ip in ips:
-        hosts = get_list(f"/hosts/?ipaddresses__ipaddress={ip}")
+        hosts = conn.get_list(f"/hosts/?ipaddresses__ipaddress={ip}")
         for host in hosts:
             problem_hosts[host['name']] = host
 
@@ -257,7 +183,7 @@ def removable(oldnet, newnets=[]):
             if len(host[i]):
                 not_delete[hostname].append(i)
 
-        naptrs = get_list(f"/naptrs/?host__id={host['id']}")
+        naptrs = conn.get_list(f"/naptrs/?host__id={host['id']}")
         if len(naptrs):
             not_delete[hostname].append("naptrs")
 
@@ -296,17 +222,17 @@ def shrink_networks(shrink, import_data, args):
 
         for hostname in delete_hosts:
             if not args.dryrun:
-                delete(f"/hosts/{hostname}")
+                conn.delete(f"/hosts/{hostname}")
             logging.info(f"Deleted host {hostname}")
         for hostname, ipinfo in delete_ips.items():
             for ip_id, ip in ipinfo:
                 if not args.dryrun:
-                    delete(f"/ipaddresses/{ip_id}")
+                    conn.delete(f"/ipaddresses/{ip_id}")
                 logging.info(f"Deleted ip {ip} from host {hostname}")
         for hostname, ipinfo in delete_ptrs.items():
             for ip_id, ip in ipinfo:
                 if not args.dryrun:
-                    delete(f"/ptroverrides/{ip_id}")
+                    conn.delete(f"/ptroverrides/{ip_id}")
                 logging.info(f"Deleted ptr override {ip} from host {hostname}")
 
         first = True
@@ -316,11 +242,11 @@ def shrink_networks(shrink, import_data, args):
             if first:
                 path = f"{basepath}{oldnet}"
                 if not args.dryrun:
-                    patch(path, newdata)
+                    conn.patch(path, newdata)
                 first = False
-                logging.info(f"PATCHED {oldnet} to {newdata['range']}")
+                logging.info(f"PATCHED {oldnet} to {newdata['network']}")
             elif not args.dryrun:
-                post(basepath, newdata)
+                conn.post(basepath, newdata)
 
 
 def read_networks(filename):
@@ -348,6 +274,7 @@ def read_networks(filename):
                 network_str = res.group('network').lower()
                 try:
                     network = ipaddress.ip_network(network_str)
+                    network_str = str(network)
                 except ValueError as e:
                     _error(f"Network is invalid: {e}")
                 overlap_check(network, tree, points)
@@ -370,7 +297,7 @@ def read_networks(filename):
                                 "{}: Invalid tag {}. Check valid in tags file.".format(
                                     line_number, tag))
                 data = {
-                    'range': network_str,
+                    'network': network_str,
                     'description': desc.strip(),
                     'vlan': vlan,
                     'category': category.strip(),
@@ -384,11 +311,11 @@ def read_networks(filename):
                 _error(f"Could not match string: {line}")
 
 def empty_network(network):
-        used_count = get(f"{basepath}{network}/used_count").json()
-        ptr_list = get(f"{basepath}{network}/ptroverride_list").json()
+        used_count = conn.get(f"{basepath}{network}/used_count").json()
+        ptr_list = conn.get(f"{basepath}{network}/ptroverride_list").json()
         if used_count == 0 and len(ptr_list) == 0:
             return True
-        used_list = get(f"{basepath}{network}/used_list").json()
+        used_list = conn.get(f"{basepath}{network}/used_list").json()
         if used_list:
             return False
 
@@ -461,12 +388,12 @@ def grow_networks(grow, import_data, dryrun):
             if not dryrun:
                 dummyrange = '255.255.255.0/32'
                 path = f"{basepath}{oldnet}"
-                patch(path, range=dummyrange)
+                conn.patch(path, {'network': dummyrange})
                 path = f"{basepath}{dummyrange}"
-                delete(path)
+                conn.delete(path)
             logging.info(f"REMOVED {oldnet} to make room for {newnet}")
         if not dryrun:
-            patch(f"{basepath}{replace}", import_data[newnet])
+            conn.patch(f"{basepath}{replace}", import_data[newnet])
         logging.info(f"GREW {replace} to {newnet}")
 
 
@@ -492,19 +419,19 @@ def update_mreg(import_data, args, *changes):
     for network in networks_delete:
         path = f"{basepath}{network}"
         if not args.dryrun:
-            delete(path)
+            conn.delete(path)
         logging.info(f"DELETE {path}")
 
     for network in networksort(networks_post):
         data = import_data[network]
         if not args.dryrun:
-            post(basepath, data)
+            conn.post(basepath, data)
         logging.info(f"POST {basepath} - {network} - {data['description']}")
 
     for network, data in networks_patch.items():
         path = f"{basepath}{network}"
         if not args.dryrun:
-            patch(path, data)
+            conn.patch(path, data)
         logging.info(f"PATCH {path} {data}")
 
     logging.info("------ API REQUESTS END ------")
@@ -515,9 +442,9 @@ def sync_with_mreg(args):
     read_networks(args.networkfile)
     mreg_data = defaultdict(dict)
     path = requests.compat.urljoin(basepath, "?page_size=1000")
-    for i in get_list(path):
-        network = ipaddress.ip_network(i['range'])
-        mreg_data[network.version][i['range']] = i
+    for i in conn.get_list(path):
+        network = ipaddress.ip_network(i['network'])
+        mreg_data[network.version][i['network']] = i
     for ipversion, import_data in ((4, import_v4), (6, import_v6)):
         changes = compare_with_mreg(ipversion, import_data, mreg_data[ipversion])
         if any(len(i) for i in changes):
@@ -529,7 +456,7 @@ def sync_with_mreg(args):
 
 
 def main():
-    global cfg
+    global cfg, conn
     parser = argparse.ArgumentParser()
     parser.add_argument("networkfile",
                         help="File with all networks")
@@ -552,6 +479,7 @@ def main():
     cfg.read_file(open(args.config), args.config)
 
     setup_logging()
+    conn = common.connection.Connection(cfg['mreg'])
     sync_with_mreg(args)
 
 
