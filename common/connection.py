@@ -13,7 +13,7 @@ class Connection:
     def __init__(self, config):
         for i in ('url', 'username', 'password',):
             if i not in config:
-                error("Need {i} in config")
+                error(f"Need {i} in config")
             setattr(self, i, config[i])
 
         self._session = requests.Session()
