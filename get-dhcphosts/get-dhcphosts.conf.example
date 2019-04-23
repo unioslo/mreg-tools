@@ -1,0 +1,10 @@
+[default]
+workdir = /tmp/mreg/workdir
+destdir = /tmp/mreg/dstdir
+logdir = /tmp/mreg/logdir
+
+[mreg]
+url = http://localhost:8000/
+username = mreguser
+password = mregpass
+hosts = ipv4
