@@ -4,6 +4,7 @@ import datetime
 import ipaddress
 import logging
 import os
+import pathlib
 import re
 import sys
 
@@ -14,7 +15,8 @@ import requests
 
 from intervaltree import IntervalTree
 
-sys.path.append('..')
+parentdir = pathlib.Path(__file__).resolve().parent.parent
+sys.path.append(str(parentdir))
 import common.connection
 
 

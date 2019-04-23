@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,8 @@ from time import time
 # replace in python 3.7 with datetime.fromisoformat
 from iso8601 import parse_date
 
-sys.path.append('..')
+parentdir = pathlib.Path(__file__).resolve().parent.parent
+sys.path.append(str(parentdir))
 import common.connection
 
 def error(msg, code=os.EX_UNAVAILABLE):
