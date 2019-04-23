@@ -54,7 +54,6 @@ class Connection:
 
     @staticmethod
     def result_check(result, type, url, data=None):
-        print(f"result.ok {result.ok} result.status_code {result.status_code}")
         if not result.ok:
             message = f"{type} \"{url}\": {result.status_code}: {result.reason}"
             try:
