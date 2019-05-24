@@ -19,7 +19,6 @@ parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
 import common.connection
 
-
 basepath = "/networks/"
 
 mreg_data = {}
@@ -27,11 +26,14 @@ import_v4 = {}
 import_v6 = {}
 location_tags = set()
 category_tags = set()
+delete_ips = defaultdict(list)
+delete_ptrs = defaultdict(list)
+delete_hosts = set()
 
 
 def error(message):
     print("ERROR: " + message, file=sys.stderr)
-    logging.error(message)
+    logger.error(message)
     sys.exit(1)
 
 
@@ -60,6 +62,7 @@ def setup_logging():
                     datefmt='%Y-%m-%d %H:%M:%S',
                     filename=filepath,
                     level=logging.INFO)
+    return logging.getLogger(__name__)
 
 
 def read_tags():
@@ -139,17 +142,17 @@ def overlap_check(network, tree, points):
 def removable(oldnet, newnets=[]):
     # An empty networks is obviously removable
     if empty_network(oldnet):
-        return {}, {}, {}
+        return
 
     def ips_not_in_newnets(ips):
-        res = []
+        res = set()
         for ip in ips:
             ipaddr = ipaddress.ip_address(ip)
             for net in newnets:
                 if ipaddr in net:
                     break
             else:
-                res.append(ip)
+                res.add(ip)
         return res
 
     newnets = [ipaddress.ip_network(i) for i in newnets]
@@ -170,9 +173,6 @@ def removable(oldnet, newnets=[]):
             problem_hosts[host['name']] = host
 
     not_delete = defaultdict(list)
-    delete_ips = defaultdict(list)
-    delete_ptrs = defaultdict(list)
-    delete_hosts = set()
 
     for hostname, host in problem_hosts.items():
         # Need to figure of if we should delete a host, or just remove
@@ -181,29 +181,37 @@ def removable(oldnet, newnets=[]):
         # - All ip addresses in oldnet, and none in newnet.
         # - All ptr overrides in oldnet, and none in newnet.
         # - Not used as a target for naptr, srv or txt.
-        for i in ("cnames", "txts",):
+
+        host_ips = set(map(itemgetter('ipaddress'), host['ipaddresses']))
+        host_ptrs = set(map(itemgetter('ipaddress'), host['ptr_overrides']))
+
+        # The host is used outside the network, so only remove ip/ptr
+        if host_ips - ips or host_ptrs - ptrs:
+            for info in host["ipaddresses"]:
+                if info['ipaddress'] in ips:
+                    delete_ips[hostname].append((info["id"], info["ipaddress"]))
+            for info in host["ptr_overrides"]:
+                if info['ipaddress'] in ptrs:
+                    delete_ptrs[hostname].append((info["id"], info["ipaddress"]))
+            continue
+
+
+        for i in ('cnames', 'mxs', 'txts',):
             if len(host[i]):
                 not_delete[hostname].append(i)
 
-        naptrs = conn.get_list(f"/naptrs/?host__id={host['id']}")
-        if len(naptrs):
-            not_delete[hostname].append("naptrs")
+        for reason, url in (('naptrs', f"/naptrs/?host__id={host['id']}"),
+                            ('srvs', f'/srvs/?target={hostname}'),
+                            ):
+            ret = conn.get_list(url)
+            if len(ret):
+                not_delete[hostname].append(reason)
 
-        host_ips = list(map(itemgetter('ipaddress'), host['ipaddresses']))
-        host_ptrs = list(map(itemgetter('ipaddress'), host['ptr_overrides']))
+        if hostname in not_delete:
+            continue
 
-        if all(host_ip in ips for host_ip in host_ips) and \
-           all(host_ptr in ptrs for host_ptr in host_ptrs):
-            if hostname not in not_delete:
-                delete_hosts.add(hostname)
-                continue
-
-        for info in host["ipaddresses"]:
-            if info['ipaddress'] in ips:
-                delete_ips[hostname].append((info["id"], info["ipaddress"]))
-        for info in host["ptr_overrides"]:
-            if info['ipaddress'] in ptrs:
-                delete_ptrs[hostname].append((info["id"], info["ipaddress"]))
+        if host_ips & ips == host_ips and host_ptrs & ptrs == host_ptrs:
+            delete_hosts.add(hostname)
 
     if not_delete:
         message = f"Can not remove {oldnet} due to:"
@@ -212,30 +220,12 @@ def removable(oldnet, newnets=[]):
                                                            ", ".join(reasons))
         error(message)
 
-    return delete_hosts, delete_ips, delete_ptrs
-
 
 def shrink_networks(shrink, import_data, args):
     for oldnet, newnets in shrink.items():
         newnets = networksort(newnets)
 
-        (delete_hosts, delete_ips, delete_ptrs) = removable(oldnet, newnets)
         logging.info(f"Shrinking: {oldnet} -> {newnets}")
-
-        for hostname in delete_hosts:
-            if not args.dryrun:
-                conn.delete(f"/hosts/{hostname}")
-            logging.info(f"Deleted host {hostname}")
-        for hostname, ipinfo in delete_ips.items():
-            for ip_id, ip in ipinfo:
-                if not args.dryrun:
-                    conn.delete(f"/ipaddresses/{ip_id}")
-                logging.info(f"Deleted ip {ip} from host {hostname}")
-        for hostname, ipinfo in delete_ptrs.items():
-            for ip_id, ip in ipinfo:
-                if not args.dryrun:
-                    conn.delete(f"/ptroverrides/{ip_id}")
-                logging.info(f"Deleted ptr override {ip} from host {hostname}")
 
         first = True
         for newnet in newnets:
@@ -328,9 +318,14 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
 
     networks_delete = mreg_data.keys() - import_data.keys()
     networks_post = import_data.keys() - mreg_data.keys()
+    networks_keep = import_data.keys() & mreg_data.keys()
+    networks_patch = defaultdict(dict)
 
     networks_grow = defaultdict(set)
     networks_shrink = defaultdict(set)
+    delete_hosts = list()
+    delete_ips = defaultdict(list)
+    delete_ptrs = defaultdict(list)
 
     # Check if a network destined for removal is actually just resized
     for existing in networks_delete:
@@ -338,7 +333,7 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
         for new in networks_post:
             new_net = ipaddress.ip_network(new)
             if subnet_of(existing_net, new_net):
-                networks_grow[new].add(existing)
+                networks_grow[new].extepnd(existing)
             elif supernet_of(existing_net, new_net):
                 networks_shrink[existing].add(new)
 
@@ -350,9 +345,6 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
         removable(oldnet, newnets=newnets)
         networks_delete.remove(oldnet)
         networks_post -= newnets
-
-    networks_patch = defaultdict(dict)
-    networks_keep = import_data.keys() & mreg_data.keys()
 
     # Check if networks marked for deletion is removable
     for network in networks_delete:
@@ -415,6 +407,22 @@ def update_mreg(import_data, args, *changes):
     networks_post, networks_patch, networks_delete, networks_grow, networks_shrink = changes
     logging.info("------ API REQUESTS START ------")
 
+    for hostname in delete_hosts:
+        if not args.dryrun:
+            conn.delete(f"/hosts/{hostname}")
+        logging.info(f"Deleted host {hostname}")
+    for hostname, ipinfo in delete_ips.items():
+        for ip_id, ip in ipinfo:
+            if not args.dryrun:
+                conn.delete(f"/ipaddresses/{ip_id}")
+            logging.info(f"Deleted ip {ip} from host {hostname}")
+    for hostname, ipinfo in delete_ptrs.items():
+        for ip_id, ip in ipinfo:
+            if not args.dryrun:
+                conn.delete(f"/ptroverrides/{ip_id}")
+            logging.info(f"Deleted ptr override {ip} from host {hostname}")
+
+
     grow_networks(networks_grow, import_data, args.dryrun)
     shrink_networks(networks_shrink, import_data, args)
 
@@ -458,7 +466,7 @@ def sync_with_mreg(args):
 
 
 def main():
-    global cfg, conn
+    global cfg, conn, logger
     parser = argparse.ArgumentParser()
     parser.add_argument("networkfile",
                         help="File with all networks")
@@ -480,8 +488,8 @@ def main():
     cfg = configparser.ConfigParser()
     cfg.read_file(open(args.config), args.config)
 
-    setup_logging()
-    conn = common.connection.Connection(cfg['mreg'])
+    logger = setup_logging()
+    conn = common.connection.Connection(cfg['mreg'], logger=logger)
     sync_with_mreg(args)
 
 
