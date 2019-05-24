@@ -1,23 +1,29 @@
+import logging
 import json
 import requests
+import sys
 
 
-def error(message):
-    print(message)
-    import sys
+def error(message, logger=None):
+    print("ERROR: " + message, file=sys.stderr)
+    if logger is not None:
+        logger.error(message)
     sys.exit(1)
     
 
 class Connection:
 
-    def __init__(self, config):
+    def __init__(self, config, logger=None):
         for i in ('url', 'username', 'password',):
             if i not in config:
                 error(f"Need {i} in config")
             setattr(self, i, config[i])
-
         self._session = requests.Session()
         self.update_token()
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+        else:
+            self.logger = logger
 
     def get(self, path: str) -> requests.Response:
         """Uses requests to make a get request."""
@@ -52,8 +58,7 @@ class Connection:
         """Uses requests to make a delete request."""
         return self._request_wrapper("delete", path)
 
-    @staticmethod
-    def result_check(result, type, url, data=None):
+    def result_check(self, result, type, url, data=None):
         if not result.ok:
             message = f"{type} \"{url}\": {result.status_code}: {result.reason}"
             try:
@@ -64,7 +69,7 @@ class Connection:
                 message += "\n{}".format(json.dumps(body, indent=2))
                 if data is not None:
                     message += "\n{}".format(json.dumps(data, indent=2))
-            error(message)
+            error(message, logger=self.logger)
 
     def _request_wrapper(self, type, path, data=None, first=True):
         headers = {'content-type': 'application/json'}
