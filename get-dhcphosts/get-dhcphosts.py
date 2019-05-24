@@ -82,8 +82,8 @@ def create_url():
     param = '/dhcphosts/'
     if 'hosts' in cfg['mreg']:
         hosts = cfg['mreg']['hosts']
-        if hosts not in ('ipv4', 'ipv6', 'ipv6fromipv4'):
-            error("'hosts' must be one of 'ipv4', 'ipv6', 'ipv6fromipv4'")
+        if hosts not in ('ipv4', 'ipv6', 'ipv6byipv4'):
+            error("'hosts' must be one of 'ipv4', 'ipv6', 'ipv6byipv4'")
         param += f'{hosts}/'
     else:
         error("Missing 'hosts' in mreg section of config")
