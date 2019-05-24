@@ -78,18 +78,27 @@ def create_files(dhcphosts, onefile):
             f.write("}\n")
             write_file()
 
+def create_url():
+    param = '/dhcphosts/'
+    if 'hosts' in cfg['mreg']:
+        hosts = cfg['mreg']['hosts']
+        if hosts not in ('ipv4', 'ipv6', 'ipv6fromipv4'):
+            error("'hosts' must be one of 'ipv4', 'ipv6', 'ipv6fromipv4'")
+        param += f'{hosts}/'
+    else:
+        error("Missing 'hosts' in mreg section of config")
+    if 'range' in cfg['mreg']:
+        try:
+            ipaddress.ip_network(cfg['mreg']['range'])
+        except ValueError as e:
+            error(f'Invalid range in config: {e}')
+        param += cfg['mreg']['range']
+
+    return requests.compat.urljoin(cfg["mreg"]["url"], param)
+
 
 @common.utils.timing
-def get_dhcphosts():
-    url = requests.compat.urljoin(cfg["mreg"]["url"], "/dhcphosts/")
-    hosts = cfg["mreg"]["hosts"]
-    if hosts == "ipv4":
-        param = "v4/all"
-    elif hosts == "ipv6":
-        param = "v6/all"
-    else:
-        param = hosts
-    url = requests.compat.urljoin(url, param)
+def get_dhcphosts(url):
     ret = conn.get(url).json()
     dhcphosts = defaultdict(list)
     done = set()
@@ -114,15 +123,15 @@ def get_dhcphosts():
     return dhcphosts
 
 
-def dhcphosts(onefile):
+def dhcphosts(args, url):
     for dir in ('destdir', 'workdir',):
         mkdir(cfg['default'][dir])
 
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        dhcphosts = get_dhcphosts()
-        create_files(dhcphosts, onefile)
+        dhcphosts = get_dhcphosts(url)
+        create_files(dhcphosts, args.one_file)
         lock.release()
     else:
         logging.warning(f"Could not lock on {lockfile}")
@@ -137,7 +146,6 @@ def main():
     parser.add_argument("--one-file",
                         action="store_true",
                         help="Write all hosts to one file, instead of per domain")
-    # ipv6 -> mac if host have ipv6. 
     args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
@@ -147,19 +155,10 @@ def main():
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
-    if 'hosts' in cfg['mreg']:
-        hosts = cfg['mreg']['hosts']
-        if hosts not in ('ipv4', 'ipv6'):
-            try:
-                ipaddress.ip_network(hosts)
-            except ValueError:
-                error("'hosts' must be one of 'ipv4', 'ipv6', 'ip/mask'")
-    else:
-        error("Missing 'hosts' in mreg section of config")
-
     setup_logging()
     conn = common.connection.Connection(cfg['mreg'])
-    dhcphosts(args.one_file)
+    url = create_url()
+    dhcphosts(args, url)
 
 
 if __name__ == '__main__':
