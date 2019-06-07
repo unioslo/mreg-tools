@@ -207,9 +207,8 @@ def removable(oldnet, newnets=[]):
             else:
                 not_delete[hostname].append('txts')
 
-
         for reason, url in (('naptrs', f"/naptrs/?host__id={host['id']}"),
-                            ('srvs', f'/srvs/?target={hostname}'),
+                            ('srvs', f"/srvs/?host={host['id']}"),
                             ):
             ret = conn.get_list(url)
             if len(ret):
