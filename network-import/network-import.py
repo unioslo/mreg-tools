@@ -196,9 +196,17 @@ def removable(oldnet, newnets=[]):
             continue
 
 
-        for i in ('cnames', 'mxs', 'txts',):
+        for i in ('cnames', 'mxs',):
             if len(host[i]):
                 not_delete[hostname].append(i)
+
+        if len(host['txts']):
+            if len(host['txts']) == 1:
+                if host['txts'][0]['txt'] != 'v=spf1 -all':
+                    not_delete[hostname].append('txts')
+            else:
+                not_delete[hostname].append('txts')
+
 
         for reason, url in (('naptrs', f"/naptrs/?host__id={host['id']}"),
                             ('srvs', f'/srvs/?target={hostname}'),
