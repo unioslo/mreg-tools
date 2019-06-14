@@ -1,18 +1,19 @@
 import argparse
 import configparser
 import datetime
+import io
 import ipaddress
 import logging
 import os
 import shutil
 import sys
-import tempfile
-
-import fasteners
-import requests
-
 from collections import defaultdict
 from os.path import join as opj
+
+import fasteners
+
+import requests
+
 
 sys.path.append('..')
 import common.connection
@@ -52,31 +53,36 @@ def create_files(dhcphosts, onefile):
     def write_file():
         if onefile:
             filename = "hosts.conf"
-            mode = "a"
         else:
             filename = domain
-            mode = "w"
         dstfile = opj(cfg['default']['destdir'], filename)
         # XXX: add difflib or ignore
-        # xxx: fix rename hosts.conf to hosts.conf_old before done...
         if os.path.isfile(dstfile):
             os.rename(dstfile, f"{dstfile}_old")
-        with open(dstfile, mode) as dest:
+        with open(dstfile, 'w') as dest:
             f.seek(0)
             shutil.copyfileobj(f, dest)
         os.chmod(dstfile, 0o400)
 
-    for domain, hosts in dhcphosts.items():
-        with tempfile.TemporaryFile(mode='w+', dir=cfg['default']['workdir']) as f:
-            f.write("group { \n")
-            f.write(f"    option domain-name \"{domain}\";\n")
-            for hostname, mac, ip in hosts:
-                info = """
+    f = io.StringIO()
+    # Sort domain by tld, domain [,subdomain, [subdomain..]]
+    for domain in sorted(list(dhcphosts.keys()), key=lambda i: list(reversed(i.split('.')))):
+        hosts = dhcphosts[domain]
+        f.write("group { \n")
+        f.write(f"    option domain-name \"{domain}\";\n")
+        for hostname, mac, ip in hosts:
+            info = """
     host {} {{ hardware ethernet {}; fixed-address {}; }}
 """.format(hostname, mac, ip)
-                f.write(info)
-            f.write("}\n")
+            f.write(info)
+        f.write("}\n")
+
+        if not onefile:
             write_file()
+            f = io.StringIO()
+    if onefile:
+        write_file()
+
 
 def create_url():
     param = '/dhcphosts/'
