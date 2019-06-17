@@ -18,7 +18,7 @@ parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
 import common.connection
 
-basepath = "/networks/"
+basepath = "/api/v1/networks/"
 
 mreg_data = {}
 import_v4 = {}
@@ -166,12 +166,12 @@ def removable(oldnet, newnets=[]):
 
     problem_hosts = dict()
     for ptr in ptrs:
-        host = conn.get_list(f"/hosts/?ptr_overrides__ipaddress={ptr}")
+        host = conn.get_list(f"/api/v1/hosts/?ptr_overrides__ipaddress={ptr}")
         assert len(host) == 1
         problem_hosts[host[0]['name']] = host[0]
 
     for ip in ips:
-        hosts = conn.get_list(f"/hosts/?ipaddresses__ipaddress={ip}")
+        hosts = conn.get_list(f"/api/v1/hosts/?ipaddresses__ipaddress={ip}")
         for host in hosts:
             problem_hosts[host['name']] = host
 
@@ -209,8 +209,8 @@ def removable(oldnet, newnets=[]):
             else:
                 not_delete[hostname].append('txts')
 
-        for reason, url in (('naptrs', f"/naptrs/?host__id={host['id']}"),
-                            ('srvs', f"/srvs/?host={host['id']}"),
+        for reason, url in (('naptrs', f"/api/v1/naptrs/?host__id={host['id']}"),
+                            ('srvs', f"/api/v1/srvs/?host={host['id']}"),
                             ):
             ret = conn.get_list(url)
             if len(ret):
@@ -414,17 +414,17 @@ def update_mreg(import_data, args, *changes):
 
     for hostname in delete_hosts:
         if not args.dryrun:
-            conn.delete(f"/hosts/{hostname}")
+            conn.delete(f"/api/v1/hosts/{hostname}")
         logging.info(f"Deleted host {hostname}")
     for hostname, ipinfo in delete_ips.items():
         for ip_id, ip in ipinfo:
             if not args.dryrun:
-                conn.delete(f"/ipaddresses/{ip_id}")
+                conn.delete(f"/api/v1/ipaddresses/{ip_id}")
             logging.info(f"Deleted ip {ip} from host {hostname}")
     for hostname, ipinfo in delete_ptrs.items():
         for ip_id, ip in ipinfo:
             if not args.dryrun:
-                conn.delete(f"/ptroverrides/{ip_id}")
+                conn.delete(f"/api/v1/ptroverrides/{ip_id}")
             logging.info(f"Deleted ptr override {ip} from host {hostname}")
 
     grow_networks(networks_grow, import_data, args.dryrun)
