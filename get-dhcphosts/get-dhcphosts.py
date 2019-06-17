@@ -81,12 +81,12 @@ def create_files(dhcphosts, onefile):
 
 
 def create_url():
-    param = '/dhcphosts/'
+    path = '/api/v1/dhcphosts/'
     if 'hosts' in cfg['mreg']:
         hosts = cfg['mreg']['hosts']
         if hosts not in ('ipv4', 'ipv6', 'ipv6byipv4'):
             error("'hosts' must be one of 'ipv4', 'ipv6', 'ipv6byipv4'")
-        param += f'{hosts}/'
+        path += f'{hosts}/'
     else:
         error("Missing 'hosts' in mreg section of config")
     if 'range' in cfg['mreg']:
@@ -94,9 +94,9 @@ def create_url():
             ipaddress.ip_network(cfg['mreg']['range'])
         except ValueError as e:
             error(f'Invalid range in config: {e}')
-        param += cfg['mreg']['range']
+        path += cfg['mreg']['range']
 
-    return requests.compat.urljoin(cfg["mreg"]["url"], param)
+    return requests.compat.urljoin(cfg["mreg"]["url"], path)
 
 
 @common.utils.timing
