@@ -50,11 +50,7 @@ def setup_logging():
 
 
 def create_files(dhcphosts, onefile):
-    def write_file():
-        if onefile:
-            filename = "hosts.conf"
-        else:
-            filename = domain
+    def write_file(filename):
         dstfile = opj(cfg['default']['destdir'], filename)
         # XXX: add difflib or ignore
         if os.path.isfile(dstfile):
@@ -71,17 +67,17 @@ def create_files(dhcphosts, onefile):
         f.write("group { \n")
         f.write(f"    option domain-name \"{domain}\";\n")
         for hostname, mac, ip in hosts:
-            info = """
-    host {} {{ hardware ethernet {}; fixed-address {}; }}
-""".format(hostname, mac, ip)
+            info = f"""
+    host {hostname} {{ hardware ethernet {mac}; fixed-address {ip}; }}
+"""
             f.write(info)
         f.write("}\n")
 
         if not onefile:
-            write_file()
+            write_file(domain)
             f = io.StringIO()
     if onefile:
-        write_file()
+        write_file('hosts.conf')
 
 
 def create_url():
