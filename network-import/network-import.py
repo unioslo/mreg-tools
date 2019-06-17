@@ -7,13 +7,12 @@ import os
 import pathlib
 import re
 import sys
-
 from collections import defaultdict
 from operator import itemgetter
 
-import requests
-
 from intervaltree import IntervalTree
+
+import requests
 
 parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
@@ -71,7 +70,7 @@ def read_tags():
     else:
         return
     with open(filename, 'r') as tagfile:
-        flag_re = re.compile("""^
+        flag_re = re.compile(r"""^
                              ((?P<location>[a-zA-Z0-9]+)+\s+:\s+Plassering)
                              |(?P<category>[a-zA-Z0-9]+)
                              """, re.X)
@@ -89,6 +88,7 @@ def read_tags():
                 error('In {}, wrong format on line: {} - {}'.format(
                     filename, line_number, line))
 
+
 # From python 3.7 Lib/ipaddress.py.
 def _is_subnet_of(a, b):
     try:
@@ -101,15 +101,18 @@ def _is_subnet_of(a, b):
         raise TypeError(f"Unable to test subnet containment "
                         f"between {a} and {b}")
 
+
 def subnet_of(a, b):
     """Return True if this network is a subnet of other."""
     return _is_subnet_of(a, b)
+
 
 def supernet_of(a, b):
     """Return True if this network is a supernet of other."""
     return _is_subnet_of(b, a)
 
 # end backport from Python 3.7 ipaddress
+
 
 def overlap_check(network, tree, points):
     # Uses an IntervalTree to do fast lookups of overlapping networks.
@@ -194,7 +197,6 @@ def removable(oldnet, newnets=[]):
                 if info['ipaddress'] in ptrs:
                     delete_ptrs[hostname].append((info["id"], info["ipaddress"]))
             continue
-
 
         for i in ('cnames', 'mxs',):
             if len(host[i]):
@@ -330,9 +332,6 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
 
     networks_grow = defaultdict(set)
     networks_shrink = defaultdict(set)
-    delete_hosts = list()
-    delete_ips = defaultdict(list)
-    delete_ptrs = defaultdict(list)
 
     # Check if a network destined for removal is actually just resized
     for existing in networks_delete:
@@ -398,7 +397,6 @@ def grow_networks(grow, import_data, dryrun):
         logging.info(f"GREW {replace} to {newnet}")
 
 
-
 def check_changes_size(ipversion, num_current, args, *changes):
     changed = sum(map(len, changes))
     if num_current and changed != 0:
@@ -429,7 +427,6 @@ def update_mreg(import_data, args, *changes):
                 conn.delete(f"/ptroverrides/{ip_id}")
             logging.info(f"Deleted ptr override {ip} from host {hostname}")
 
-
     grow_networks(networks_grow, import_data, args.dryrun)
     shrink_networks(networks_shrink, import_data, args)
 
@@ -452,6 +449,7 @@ def update_mreg(import_data, args, *changes):
         logging.info(f"PATCH {path} {data}")
 
     logging.info("------ API REQUESTS END ------")
+
 
 def sync_with_mreg(args):
     logging.info(f"Starting import of {args.networkfile}")
