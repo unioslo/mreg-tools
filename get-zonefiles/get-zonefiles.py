@@ -9,13 +9,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-
-import fasteners
-import requests
-
 from functools import wraps
 from os.path import join as opj
 from time import time
+
+import fasteners
 
 # replace in python 3.7 with datetime.fromisoformat
 from iso8601 import parse_date
@@ -24,8 +22,10 @@ parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
 import common.connection
 
+
 def error(msg, code=os.EX_UNAVAILABLE):
-    logging.error(msg)
+    if logger:
+        logger.error(msg)
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(code)
 
@@ -51,6 +51,7 @@ def setup_logging():
                     datefmt='%Y-%m-%d %H:%M:%S',
                     filename=filepath,
                     level=logging.INFO)
+    return logging.getLogger(__name__)
 
 
 def timing(f):
@@ -120,8 +121,8 @@ def update_zone(zone, name, zoneinfo):
 
 @timing
 def get_zone(zone, name):
-    zonefile = conn.get(f"zonefiles/{zone}").text
-    zoneinfo = conn.get(f"zones/{zone}").json()
+    zonefile = conn.get(f"/api/v1/zonefiles/{zone}").text
+    zoneinfo = conn.get(f"/api/v1/zones/{zone}").json()
     with tempfile.TemporaryFile(dir=cfg['default']['workdir']) as f:
         f.write(zonefile.encode())
         dstfile = opj(cfg['default']['destdir'], name)
@@ -143,7 +144,7 @@ def get_zone(zone, name):
 @timing
 def get_current_zoneinfo():
     zoneinfo = dict()
-    ret = conn.get("/zones/")
+    ret = conn.get("/api/v1/zones/")
     for zone in ret.json():
         zoneinfo[zone['name']] = zone
     return zoneinfo
@@ -183,7 +184,7 @@ def run_postcommand():
 
 
 def main():
-    global cfg, conn
+    global cfg, conn, logger
     parser = argparse.ArgumentParser(description="Download zonefiles from mreg.")
     parser.add_argument('--config',
                         default='get-zonefiles.conf',
@@ -201,9 +202,8 @@ def main():
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
-    conn = common.connection.Connection(cfg['mreg'])
-
-    setup_logging()
+    logger = setup_logging()
+    conn = common.connection.Connection(cfg['mreg'], logger=logger)
     get_zonefiles(args.force)
 
 
