@@ -9,7 +9,7 @@ def error(message, logger=None):
     if logger is not None:
         logger.error(message)
     sys.exit(1)
-    
+
 
 class Connection:
 
@@ -28,7 +28,6 @@ class Connection:
     def get(self, path: str) -> requests.Response:
         """Uses requests to make a get request."""
         return self._request_wrapper("get", path)
-
 
     def get_list(self, path: str) -> requests.Response:
         """Uses requests to make a get request.
