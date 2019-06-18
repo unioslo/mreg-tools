@@ -127,10 +127,13 @@ def updated_dhcp_entries() -> bool:
         except PermissionError:
             error(f"No permission to write to {filename}")
 
-    old_ipaddress = get_old_ipaddress()
     path = '/api/v1/ipaddresses/?macaddress__gt=""&page_size=1&ordering=updated_at'
     url = requests.compat.urljoin(cfg["mreg"]["url"], path)
     new_ipaddress = conn.get(url).json()
+    if new_ipaddress['count'] == 0:
+        logger.warning("No ipaddresses with macaddress in mreg")
+        return False
+    old_ipaddress = get_old_ipaddress()
     if old_ipaddress is not None:
         old_updated_at = parse_date(old_ipaddress['results'][0]['updated_at'])
         new_updated_at = parse_date(new_ipaddress['results'][0]['updated_at'])
