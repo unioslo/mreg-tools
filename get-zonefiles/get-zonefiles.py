@@ -9,9 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from functools import wraps
 from os.path import join as opj
-from time import time
 
 import fasteners
 
@@ -21,6 +19,7 @@ from iso8601 import parse_date
 parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
 import common.connection
+import common.utils
 
 
 def error(msg, code=os.EX_UNAVAILABLE):
@@ -54,24 +53,13 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 
-def timing(f):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = time()
-        result = f(*args, **kw)
-        te = time()
-        logging.info(f'func:{f.__name__} args:[{args}, {kw}] took: {te-ts:.4} sec')
-        return result
-    return wrap
-
-
 def get_old_zoneinfo(name):
     filename = opj(cfg['default']['workdir'], f"{name}.json")
     try:
         with open(filename, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, EOFError):
-        logging.warning(f"Could read data from {filename}")
+        logger.warning(f"Could read data from {filename}")
         return None
 
 
@@ -106,20 +94,20 @@ def update_zone(zone, name, zoneinfo):
         if zoneinfo['updated']:
             return True
         elif old_updated_at == updated_at:
-            logging.info(f"{name}: unchanged updated_at: {updated_at}")
+            logger.info(f"{name}: unchanged updated_at: {updated_at}")
             return False
         # mreg will only update the serialnumber once per minute, so no need to
         # rush.  It will attempt to get it, hopefully with a new serialnumber,
         # in the next run.
         elif datetime.datetime.now(old_serial_uat.tzinfo) < \
                 old_serial_uat + datetime.timedelta(minutes=1):
-            logging.info(f"{name}: less than a minute since last "
-                         f"serial {old_serial_uat}, skipping")
+            logger.info(f"{name}: less than a minute since last "
+                        f"serial {old_serial_uat}, skipping")
             return False
     return True
 
 
-@timing
+@common.utils.timing
 def get_zone(zone, name):
     zonefile = conn.get(f"/api/v1/zonefiles/{zone}").text
     zoneinfo = conn.get(f"/api/v1/zones/{zone}").json()
@@ -137,11 +125,11 @@ def get_zone(zone, name):
         os.chmod(dstfile, 0o400)
 
     if zoneinfo['serialno'] % 100 == 99:
-        logging.warning(f"{name}: reached max serial (99)")
+        logger.warning(f"{name}: reached max serial (99)")
     write_old_zoneinfo(name, zoneinfo)
 
 
-@timing
+@common.utils.timing
 def get_current_zoneinfo():
     zoneinfo = dict()
     ret = conn.get("/api/v1/zones/")
@@ -150,7 +138,7 @@ def get_current_zoneinfo():
     return zoneinfo
 
 
-@timing
+@common.utils.timing
 def get_zonefiles(force):
     for dir in ('destdir', 'workdir',):
         mkdir(cfg['default'][dir])
@@ -174,10 +162,10 @@ def get_zonefiles(force):
             run_postcommand()
         lock.release()
     else:
-        logging.warning(f"Could not lock on {lockfile}")
+        logger.warning(f"Could not lock on {lockfile}")
 
 
-@timing
+@common.utils.timing
 def run_postcommand():
     command = json.loads(cfg['default']['postcommand'])
     subprocess.run(command)
