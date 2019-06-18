@@ -3,14 +3,19 @@ import configparser
 import datetime
 import io
 import ipaddress
+import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 from collections import defaultdict
 from os.path import join as opj
 
 import fasteners
+
+# replace in python 3.7 with datetime.fromisoformat
+from iso8601 import parse_date
 
 import requests
 
@@ -47,6 +52,7 @@ def setup_logging():
                     datefmt='%Y-%m-%d %H:%M:%S',
                     filename=filepath,
                     level=logging.INFO)
+    return logging.getLogger(__name__)
 
 
 def create_files(dhcphosts, onefile):
@@ -100,6 +106,45 @@ def create_url():
 
 
 @common.utils.timing
+def updated_dhcp_entries() -> bool:
+    """Check if the most recently updated ipaddress is the same as
+       from the previous run."""
+
+    def get_old_ipaddress():
+        filename = opj(cfg['default']['workdir'], "oldip.json")
+        try:
+            with open(filename, 'r') as f:
+                return json.load(f)
+        except (FileNotFoundError, EOFError):
+            logging.warning(f"Could read data from {filename}")
+            return None
+
+    def write_old_ipaddress(info):
+        filename = opj(cfg['default']['workdir'], "oldip.json")
+        try:
+            with open(filename, 'w') as f:
+                return json.dump(info, f)
+        except PermissionError:
+            error(f"No permission to write to {filename}")
+
+    old_ipaddress = get_old_ipaddress()
+    path = '/api/v1/ipaddresses/?macaddress__gt=""&page_size=1&ordering=updated_at'
+    url = requests.compat.urljoin(cfg["mreg"]["url"], path)
+    new_ipaddress = conn.get(url).json()
+    if old_ipaddress is not None:
+        old_updated_at = parse_date(old_ipaddress['results'][0]['updated_at'])
+        new_updated_at = parse_date(new_ipaddress['results'][0]['updated_at'])
+        if old_ipaddress['count'] != new_ipaddress['count'] or \
+           old_ipaddress['results'][0]['id'] != new_ipaddress['results'][0]['id'] or \
+           old_updated_at < new_updated_at:
+            write_old_ipaddress(new_ipaddress)
+            return True
+        return False
+    write_old_ipaddress(new_ipaddress)
+    return True
+
+
+@common.utils.timing
 def get_dhcphosts(url):
     ret = conn.get(url).json()
     dhcphosts = defaultdict(list)
@@ -132,15 +177,26 @@ def dhcphosts(args, url):
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        dhcphosts = get_dhcphosts(url)
-        create_files(dhcphosts, args.one_file)
-        lock.release()
+        if updated_dhcp_entries():
+            dhcphosts = get_dhcphosts(url)
+            create_files(dhcphosts, args.one_file)
+            if 'postcommand' in cfg['default']:
+                run_postcommand()
+            lock.release()
+        else:
+            logger.info("No updated dhcp entries")
     else:
-        logging.warning(f"Could not lock on {lockfile}")
+        logger.warning(f"Could not lock on {lockfile}")
+
+
+@common.utils.timing
+def run_postcommand():
+    command = json.loads(cfg['default']['postcommand'])
+    subprocess.run(command)
 
 
 def main():
-    global cfg, conn
+    global cfg, conn, logger
     parser = argparse.ArgumentParser(description="Create dhcp config from mreg.")
     parser.add_argument("--config",
                         default="get-dhcphosts.conf",
@@ -157,7 +213,7 @@ def main():
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
-    setup_logging()
+    logger = setup_logging()
     conn = common.connection.Connection(cfg['mreg'])
     url = create_url()
     dhcphosts(args, url)
