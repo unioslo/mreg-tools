@@ -339,7 +339,7 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
         for new in networks_post:
             new_net = ipaddress.ip_network(new)
             if subnet_of(existing_net, new_net):
-                networks_grow[new].extepnd(existing)
+                networks_grow[new].add(existing)
             elif supernet_of(existing_net, new_net):
                 networks_shrink[existing].add(new)
 
