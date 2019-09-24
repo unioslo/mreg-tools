@@ -34,7 +34,7 @@ class Connection:
            Will iterate over paginated results and return result as list."""
         ret = []
         while path:
-            result = self._request_wrapper("get", path).json()
+            result = self.get(path).json()
             if 'next' in result:
                 path = result['next']
                 ret.extend(result['results'])

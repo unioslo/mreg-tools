@@ -110,7 +110,11 @@ def update_zone(zone, name, zoneinfo):
 @common.utils.timing
 def get_zone(zone, name):
     zonefile = conn.get(f"/api/v1/zonefiles/{zone}").text
-    zoneinfo = conn.get(f"/api/v1/zones/{zone}").json()
+    if zone.endswith('.arpa'):
+        path = f'/api/v1/zones/reverse/{zone}'
+    else:
+        path = f'/api/v1/zones/forward/{zone}'
+    zoneinfo = conn.get(path).json()
     with tempfile.TemporaryFile(dir=cfg['default']['workdir']) as f:
         f.write(zonefile.encode())
         dstfile = opj(cfg['default']['destdir'], name)
@@ -132,16 +136,17 @@ def get_zone(zone, name):
 @common.utils.timing
 def get_current_zoneinfo():
     zoneinfo = dict()
-    ret = conn.get("/api/v1/zones/")
-    for zone in ret.json():
-        zoneinfo[zone['name']] = zone
+    for path in ('/api/v1/zones/forward/',
+                 '/api/v1/zones/reverse/'):
+        for zone in conn.get_list(path):
+            zoneinfo[zone['name']] = zone
     return zoneinfo
 
 
 @common.utils.timing
 def get_zonefiles(force):
-    for dir in ('destdir', 'workdir',):
-        mkdir(cfg['default'][dir])
+    for i in ('destdir', 'workdir',):
+        mkdir(cfg['default'][i])
 
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
