@@ -53,25 +53,6 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 
-def get_old_zoneinfo(name):
-    filename = opj(cfg['default']['workdir'], f"{name}.json")
-    try:
-        with open(filename, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, EOFError):
-        logger.warning(f"Could read data from {filename}")
-        return None
-
-
-def write_old_zoneinfo(name, zoneinfo):
-    filename = opj(cfg['default']['workdir'], f"{name}.json")
-    try:
-        with open(filename, 'w') as f:
-            json.dump(zoneinfo, f)
-    except PermissionError:
-        error(f"No permission to write to {filename}")
-
-
 def get_extradata(name):
     if cfg['default']['extradir']:
         extrafile = opj(cfg['default']['extradir'], f"{name}_extra")
@@ -86,7 +67,8 @@ def get_extradata(name):
 
 
 def update_zone(zone, name, zoneinfo):
-    old_zoneinfo = get_old_zoneinfo(name)
+    jsonfile = opj(cfg['default']['workdir'], f"{name}.json")
+    old_zoneinfo = common.utils.read_json_file(jsonfile)
     if old_zoneinfo:
         old_updated_at = parse_date(old_zoneinfo['updated_at'])
         old_serial_uat = parse_date(old_zoneinfo['serialno_updated_at'])
@@ -130,7 +112,8 @@ def get_zone(zone, name):
 
     if zoneinfo['serialno'] % 100 == 99:
         logger.warning(f"{name}: reached max serial (99)")
-    write_old_zoneinfo(name, zoneinfo)
+    jsonfile = opj(cfg['default']['workdir'], f"{name}.json")
+    common.utils.write_json_file(jsonfile, zoneinfo)
 
 
 @common.utils.timing
@@ -156,13 +139,14 @@ def get_zonefiles(force):
         for zone in cfg['zones']:
             if zone not in allzoneinfo:
                 error(f"Zone {zone} not in mreg")
+            # Check if using a overriden filename from config
             if cfg['zones'][zone]:
-                name = cfg['zones'][zone]
+                filename = cfg['zones'][zone]
             else:
-                name = zone
-            if force or update_zone(zone, name, allzoneinfo[zone]):
+                filename = zone
+            if update_zone(zone, filename, allzoneinfo[zone]) or force:
                 updated = True
-                get_zone(zone, name)
+                get_zone(zone, filename)
         if updated and 'postcommand' in cfg['default']:
             run_postcommand()
         lock.release()
@@ -198,6 +182,5 @@ def main():
     logger = setup_logging()
     conn = common.connection.Connection(cfg['mreg'], logger=logger)
     get_zonefiles(args.force)
-
 
 main()
