@@ -10,3 +10,9 @@ url = http://localhost:8000/
 username = mreguser
 password = mregpass
 ipv6networks = False
+
+[ldif]
+dn = cn=networks,dc=example,dc=org
+cn = networks
+description = IP networks at Example Inc.
+objectClass = top
