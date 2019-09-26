@@ -60,9 +60,9 @@ def create_ldif(hostgroups):
             entry['memberNisNetgroup'] = [g['name'] for g in i['groups']]
         if i['hosts']:
             triple = []
-            remove_domain = cfg['mreg']['domain'] or None
+            remove_domain = cfg['mreg'].get('domain', None)
             if remove_domain:
-                remove_len = len(cfg['mreg']['domain']) + 1
+                remove_len = len(remove_domain) + 1
             for host in i['hosts']:
                 hostname = host['name']
                 if remove_domain and hostname.endswith(remove_domain):
