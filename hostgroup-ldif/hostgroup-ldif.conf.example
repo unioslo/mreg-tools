@@ -1,0 +1,22 @@
+[default]
+workdir = /tmp/mreg/workdir
+destdir = /tmp/mreg/dstdir
+logdir = /tmp/mreg/logdir
+#postcommand must be in json-friendly format
+#postcommand = ["sudo", "/path/to/script" ]
+
+[mreg]
+url = http://localhost:8000/
+username = mreguser
+password = mregpass
+# if a hostname ends with example.org, it will also add a second
+# entry with the domain removed.
+domain = example.org
+ipv6networks = False
+
+[ldif]
+dn = cn=netgroups,dc=example,dc=org
+description = All netgroups
+# Example if an entry should be used multiple times. Must quote strings.
+objectClass = ('top', 'organizationalUnit', )
+ou = netgroups
