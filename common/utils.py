@@ -83,7 +83,7 @@ def updated_entries(cfg, conn, url, filename, obj_filter='?page_size=1&ordering=
     if old_data['count'] != new_data['count'] or \
        old_data['results'][0]['id'] != new_data['results'][0]['id'] or \
        old_updated_at < new_updated_at:
-        write_json_file(new_data)
+        write_json_file(filename, new_data)
         return True
     return False
 
