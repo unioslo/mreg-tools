@@ -51,7 +51,7 @@ def create_ldif(networks):
     for network, i in networks.items():
         cn = i['network']
         entry = {
-            'dn': f'{cn},{dn}',
+            'dn': f'cn={cn},{dn}',
             'cn': cn,
             'objectClass': ('top', 'ipNetwork', 'uioIpNetwork'),
             'description': i['description'],
@@ -68,12 +68,12 @@ def create_ldif(networks):
 
 
 @common.utils.timing
-def get_networks(url, ipv6=False):
+def get_networks(url, skipipv6):
     ret = conn.get_list(url + '?page_size=1000')
     networks = {}
     for i in ret:
         network = ipaddress.ip_network(i['network'])
-        if not ipv6 and network.version == 6:
+        if not skipipv6 and network.version == 6:
             continue
         networks[network] = i
     return networks
@@ -88,7 +88,7 @@ def network_ldif(args, url):
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
         if common.utils.updated_entries(cfg, conn, url, 'networks.json') or args.force:
-            networks = get_networks(url, cfg['mreg']['ipv6networks'])
+            networks = get_networks(url, cfg['mreg'].getboolean('ipv6networks'))
             create_ldif(networks)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand(cfg)
