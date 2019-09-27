@@ -45,31 +45,36 @@ def create_ldif(hostgroups):
 
     f = io.StringIO()
     dn = cfg['ldif']['dn']
+    encoding = cfg['default'].get('fileencoding', '')
+    remove_domain = cfg['mreg'].get('domain', None)
+    if remove_domain:
+        remove_len = len(remove_domain) + 1
     head_entry = make_head_entry(cfg)
     f.write(entry_string(head_entry))
     f.write('\n')
     for i in hostgroups:
         cn = i['name']
+        desc = i['description'] or None
+        if encoding == 'ascii':
+            desc = common.LDIFutils.to_iso646_60(desc)
+
         entry = {
-            'dn': f'{cn},{dn}',
+            'dn': f'cn={cn},{dn}',
             'cn': cn,
-            'objectClass': ('top', 'nisNetGroup'),
-            'description': i['description'],
+            'description': desc,
+            'objectClass': ('top', 'nisNetgroup'),
             }
         if i['groups']:
             entry['memberNisNetgroup'] = [g['name'] for g in i['groups']]
         if i['hosts']:
             triple = []
-            remove_domain = cfg['mreg'].get('domain', None)
-            if remove_domain:
-                remove_len = len(remove_domain) + 1
             for host in i['hosts']:
                 hostname = host['name']
                 if remove_domain and hostname.endswith(remove_domain):
                     short = hostname[:-remove_len]
                     triple.append(f'({short},-,)')
                 triple.append(f'({hostname},-,)')
-            entry['nisNetGroupTriple'] = triple
+            entry['nisNetgroupTriple'] = triple
 
         f.write(entry_string(entry))
         f.write('\n')

@@ -27,10 +27,12 @@ def mkdir(path):
 
 def write_file(cfg, filename, f):
     dstfile = os.path.join(cfg['default']['destdir'], filename)
+    encoding = cfg['default'].get('fileencoding', 'utf-8')
+
     # XXX: add difflib or ignore
     if os.path.isfile(dstfile):
         os.rename(dstfile, f"{dstfile}_old")
-    with open(dstfile, 'w') as dest:
+    with open(dstfile, 'w', encoding=encoding) as dest:
         f.seek(0)
         shutil.copyfileobj(f, dest)
     os.chmod(dstfile, 0o400)
