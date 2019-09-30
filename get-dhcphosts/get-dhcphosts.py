@@ -46,7 +46,9 @@ def setup_logging():
                     datefmt='%Y-%m-%d %H:%M:%S',
                     filename=filepath,
                     level=logging.INFO)
-    return logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
+    common.utils.logger = logger
+    return logger
 
 
 def create_files(dhcphosts, onefile):

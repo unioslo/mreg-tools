@@ -11,8 +11,10 @@ from time import time
 # replace in python 3.7 with datetime.fromisoformat
 from iso8601 import parse_date
 
+logger = None
 
-def error(logger, msg, code=os.EX_UNAVAILABLE):
+
+def error(msg, code=os.EX_UNAVAILABLE):
     logger.error(msg)
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(code)
@@ -74,7 +76,7 @@ def updated_entries(cfg, conn, url, filename, obj_filter='?page_size=1&ordering=
     url += obj_filter
     new_data = conn.get(url).json()
     if new_data['count'] == 0:
-        error("No entries at: {url}")
+        error(f"No entries at: {url}")
     old_data = read_json_file(filename)
     if old_data is None:
         write_json_file(filename, new_data)
