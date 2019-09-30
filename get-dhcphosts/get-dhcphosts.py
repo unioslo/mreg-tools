@@ -3,6 +3,7 @@ import configparser
 import io
 import ipaddress
 import os
+import pathlib
 import sys
 from collections import defaultdict
 from os.path import join as opj
@@ -12,7 +13,8 @@ import fasteners
 import requests
 
 
-sys.path.append('..')
+parentdir = pathlib.Path(__file__).resolve().parent.parent
+sys.path.append(str(parentdir))
 import common.connection
 import common.utils
 

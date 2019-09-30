@@ -3,14 +3,15 @@ import configparser
 import io
 import ipaddress
 import os
+import pathlib
 import sys
 
 import fasteners
 
 import requests
 
-
-sys.path.append('..')
+parentdir = pathlib.Path(__file__).resolve().parent.parent
+sys.path.append(str(parentdir))
 import common.connection
 import common.utils
 
