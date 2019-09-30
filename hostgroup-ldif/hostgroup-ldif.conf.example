@@ -9,7 +9,7 @@ fileencoding = utf-8
 [mreg]
 url = http://localhost:8000/
 username = mreguser
-password = mregpass
+passwordfile = /path/to/pwd
 # if a hostname ends with example.org, it will also add a second
 # entry with the domain removed.
 domain = example.org

@@ -8,8 +8,8 @@ extradir = /mreg/extra
 
 [mreg]
 url = http://localhost:8000/
-username = foo
-password = bar
+username = mreguser
+passwordfile = /path/to/pwd
 
 [zones]
 example.org

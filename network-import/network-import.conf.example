@@ -5,4 +5,4 @@ tagsfile = tags.txt
 [mreg]
 url = http://localhost:8000/
 username = mreguser
-password = mregpass
+passwordfile = /path/to/pwd

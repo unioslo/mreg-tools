@@ -1,20 +1,21 @@
 import logging
 import json
+import os
 import requests
 import sys
 
 
-def error(message, logger=None):
+def error(message, logger=None, code=os.EX_UNAVAILABLE):
     print("ERROR: " + message, file=sys.stderr)
     if logger is not None:
         logger.error(message)
-    sys.exit(1)
+    sys.exit(code)
 
 
 class Connection:
 
     def __init__(self, config, logger=None):
-        for i in ('url', 'username', 'password',):
+        for i in ('url', 'username', 'passwordfile',):
             if i not in config:
                 error(f"Need {i} in config")
             setattr(self, i, config[i])
@@ -83,9 +84,17 @@ class Connection:
         self.result_check(result, type.upper(), url, data=data)
         return result
 
+    def read_passwordfile(self):
+        try:
+            with open(self.passwordfile, 'r') as f:
+                password = f.readline().strip()
+        except (FileNotFoundError, EOFError) as e:
+            error(f"{e}", code=e.errno)
+        return password
+
     def update_token(self):
         tokenurl = requests.compat.urljoin(self.url, "/api/token-auth/")
-        data = {'username': self.username, 'password': self.password}
+        data = {'username': self.username, 'password': self.read_passwordfile()}
         result = requests.post(tokenurl, data)
         self.result_check(result, "post", tokenurl)
         token = result.json()['token']
