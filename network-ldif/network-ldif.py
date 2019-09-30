@@ -1,11 +1,8 @@
 import argparse
 import configparser
-import datetime
 import io
 import ipaddress
-import logging
 import os
-import re
 import sys
 
 import fasteners
@@ -21,29 +18,9 @@ from common.utils import error
 from common.LDIFutils import entry_string, make_head_entry
 
 
-def setup_logging():
-    if cfg['default']['logdir']:
-        logdir = cfg['default']['logdir']
-    else:
-        logging.error("No logdir defined in config file")
-        sys.exit(1)
-
-    common.utils.mkdir(logdir)
-    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
-    filepath = os.path.join(logdir, filename)
-    logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s: %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename=filepath,
-                    level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    common.utils.logger = logger
-    return logger
-
-
 def create_ldif(networks):
     def write_file(filename):
-        common.utils.write_file(cfg, filename, f)
+        common.utils.write_file(filename, f)
 
     f = io.StringIO()
     dn = cfg['ldif']['dn']
@@ -89,14 +66,14 @@ def network_ldif(args, url):
     lockfile = os.path.join(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        if common.utils.updated_entries(cfg, conn, url, 'networks.json') or args.force:
+        if common.utils.updated_entries(conn, url, 'networks.json') or args.force:
             networks = get_networks(url, cfg['mreg'].getboolean('ipv6networks'))
             create_ldif(networks)
             if 'postcommand' in cfg['default']:
-                common.utils.run_postcommand(cfg)
-            lock.release()
+                common.utils.run_postcommand()
         else:
             logger.info("No updated networks")
+        lock.release()
     else:
         logger.warning(f"Could not lock on {lockfile}")
 
@@ -120,7 +97,8 @@ def main():
         if i not in cfg:
             error(logger, f"Missing section {i} in config file", os.EX_CONFIG)
 
-    logger = setup_logging()
+    common.utils.cfg = cfg
+    logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg['mreg'])
     url = requests.compat.urljoin(cfg["mreg"]["url"], '/api/v1/networks/')
     network_ldif(args, url)

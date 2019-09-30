@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 import os
@@ -11,11 +12,12 @@ from time import time
 # replace in python 3.7 with datetime.fromisoformat
 from iso8601 import parse_date
 
+cfg = None
 logger = None
 
-
 def error(msg, code=os.EX_UNAVAILABLE):
-    logger.error(msg)
+    if logger:
+        logger.error(msg)
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(code)
 
@@ -26,8 +28,26 @@ def mkdir(path):
     except PermissionError as e:
         error(f"{e}", code=e.errno)
 
+def getLogger():
+    global logger
+    if cfg['default']['logdir']:
+        logdir = cfg['default']['logdir']
+    else:
+        error("No logdir defined in config file")
 
-def write_file(cfg, filename, f):
+    mkdir(logdir)
+    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
+    filepath = os.path.join(logdir, filename)
+    logging.basicConfig(
+                    format='%(asctime)s %(levelname)-8s: %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    filename=filepath,
+                    level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    return logger
+
+
+def write_file(filename, f):
     dstfile = os.path.join(cfg['default']['destdir'], filename)
     encoding = cfg['default'].get('fileencoding', 'utf-8')
 
@@ -69,7 +89,7 @@ def timing(f):
 
 
 @timing
-def updated_entries(cfg, conn, url, filename, obj_filter='?page_size=1&ordering=-updated_at') -> bool:
+def updated_entries(conn, url, filename, obj_filter='?page_size=1&ordering=-updated_at') -> bool:
     """Check if first entry is unchanged"""
 
     filename = os.path.join(cfg['default']['workdir'], filename)
@@ -93,6 +113,6 @@ def updated_entries(cfg, conn, url, filename, obj_filter='?page_size=1&ordering=
 
 
 @timing
-def run_postcommand(cfg):
+def run_postcommand():
     command = json.loads(cfg['default']['postcommand'])
     subprocess.run(command)

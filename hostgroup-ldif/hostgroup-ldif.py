@@ -1,11 +1,7 @@
 import argparse
 import configparser
-import datetime
 import io
-import ipaddress
-import logging
 import os
-import re
 import sys
 
 import fasteners
@@ -21,39 +17,29 @@ from common.utils import error
 from common.LDIFutils import entry_string, make_head_entry
 
 
-def setup_logging():
-    if cfg['default']['logdir']:
-        logdir = cfg['default']['logdir']
-    else:
-        logging.error("No logdir defined in config file")
-        sys.exit(1)
-
-    common.utils.mkdir(logdir)
-    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
-    filepath = os.path.join(logdir, filename)
-    logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s: %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename=filepath,
-                    level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    common.utils.logger = logger
-    return logger
-
-
 def create_ldif(hostgroups):
     def write_file(filename):
-        common.utils.write_file(cfg, filename, f)
+        common.utils.write_file(filename, f)
 
     f = io.StringIO()
-    dn = cfg['ldif']['dn']
-    encoding = cfg['default'].get('fileencoding', '')
+    if cfg['mreg'].getboolean('make_make_head'):
+        head_entry = make_head_entry(cfg)
+        f.write(entry_string(head_entry))
+        f.write('\n')
+    for entry in create_hostgroupsentries(hostgroups):
+        f.write(entry_string(entry))
+        f.write('\n')
+    write_file('hostgroups.ldif')
+
+
+def create_hostgroupsentries(hostgroups):
+    ret = []
     remove_domain = cfg['mreg'].get('domain', None)
     if remove_domain:
         remove_len = len(remove_domain) + 1
-    head_entry = make_head_entry(cfg)
-    f.write(entry_string(head_entry))
-    f.write('\n')
+    dn = cfg['ldif']['dn']
+    encoding = cfg['default'].get('fileencoding', '')
+
     for i in hostgroups:
         cn = i['name']
         desc = i['description'] or None
@@ -77,10 +63,9 @@ def create_ldif(hostgroups):
                     triple.append(f'({short},-,)')
                 triple.append(f'({hostname},-,)')
             entry['nisNetgroupTriple'] = triple
+        ret.append(entry)
 
-        f.write(entry_string(entry))
-        f.write('\n')
-    write_file('hostgroups.ldif')
+    return ret
 
 
 @common.utils.timing
@@ -96,14 +81,14 @@ def hostgroup_ldif(args, url):
     lockfile = os.path.join(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        if common.utils.updated_entries(cfg, conn, url, 'hostgroups.json') or args.force:
+        if common.utils.updated_entries(conn, url, 'hostgroups.json') or args.force:
             hostgroups = get_hostgroups(url)
             create_ldif(hostgroups)
             if 'postcommand' in cfg['default']:
-                common.utils.run_postcommand(cfg)
-            lock.release()
+                common.utils.run_postcommand()
         else:
             logger.info("No updated hostgroups")
+        lock.release()
     else:
         logger.warning(f"Could not lock on {lockfile}")
 
@@ -127,7 +112,8 @@ def main():
         if i not in cfg:
             error(logger, f"Missing section {i} in config file", os.EX_CONFIG)
 
-    logger = setup_logging()
+    common.utils.cfg = cfg
+    logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg['mreg'])
     url = requests.compat.urljoin(cfg["mreg"]["url"], '/api/v1/hostgroups/')
     hostgroup_ldif(args, url)

@@ -1,9 +1,7 @@
 import argparse
 import configparser
-import datetime
 import io
 import ipaddress
-import logging
 import os
 import sys
 from collections import defaultdict
@@ -18,42 +16,12 @@ sys.path.append('..')
 import common.connection
 import common.utils
 
-
-def error(msg, code=os.EX_UNAVAILABLE):
-    logging.error(msg)
-    print(f"ERROR: {msg}", file=sys.stderr)
-    sys.exit(code)
-
-
-def mkdir(path):
-    try:
-        os.makedirs(path, exist_ok=True)
-    except PermissionError as e:
-        error(f"{e}", code=e.errno)
-
-
-def setup_logging():
-    if cfg['default']['logdir']:
-        logdir = cfg['default']['logdir']
-    else:
-        error("No logdir defined in config file")
-
-    mkdir(logdir)
-    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
-    filepath = opj(logdir, filename)
-    logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s: %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename=filepath,
-                    level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    common.utils.logger = logger
-    return logger
+from common.utils import error
 
 
 def create_files(dhcphosts, onefile):
     def write_file(filename):
-        common.utils.write_file(cfg, filename, f)
+        common.utils.write_file(filename, f)
 
     f = io.StringIO()
     # Sort domain by tld, domain [,subdomain, [subdomain..]]
@@ -122,22 +90,22 @@ def get_dhcphosts(url):
 
 def dhcphosts(args):
     for dir in ('destdir', 'workdir',):
-        mkdir(cfg['default'][dir])
+        common.utils.mkdir(cfg['default'][dir])
 
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
         entries_url = requests.compat.urljoin(cfg['mreg']['url'], '/api/v1/ipaddresses/')
-        obj_filter='?macaddress__gt=""&page_size=1&ordering=-updated_at'
-        if common.utils.updated_entries(cfg, conn, entries_url, 'dhcp.json',
+        obj_filter = '?macaddress__gt=""&page_size=1&ordering=-updated_at'
+        if common.utils.updated_entries(conn, entries_url, 'dhcp.json',
                                         obj_filter=obj_filter) or args.force:
             dhcphosts = get_dhcphosts(create_url())
             create_files(dhcphosts, args.one_file)
             if 'postcommand' in cfg['default']:
-                common.utils.run_postcommand(cfg)
-            lock.release()
+                common.utils.run_postcommand()
         else:
             logger.info("No updated dhcp entries")
+        lock.release()
     else:
         logger.warning(f"Could not lock on {lockfile}")
 
@@ -163,7 +131,8 @@ def main():
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
-    logger = setup_logging()
+    common.utils.cfg = cfg
+    logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg['mreg'])
     dhcphosts(args)
 

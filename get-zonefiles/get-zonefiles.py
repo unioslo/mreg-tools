@@ -1,12 +1,9 @@
 import argparse
 import configparser
 import datetime
-import json
-import logging
 import os
 import pathlib
 import shutil
-import subprocess
 import sys
 import tempfile
 from os.path import join as opj
@@ -21,38 +18,7 @@ sys.path.append(str(parentdir))
 import common.connection
 import common.utils
 
-
-def error(msg, code=os.EX_UNAVAILABLE):
-    if logger:
-        logger.error(msg)
-    print(f"ERROR: {msg}", file=sys.stderr)
-    sys.exit(code)
-
-
-def mkdir(path):
-    try:
-        os.makedirs(path, exist_ok=True)
-    except PermissionError as e:
-        error(f"{e}", code=e.errno)
-
-
-def setup_logging():
-    if cfg['default']['logdir']:
-        logdir = cfg['default']['logdir']
-    else:
-        error("No logdir defined in config file")
-
-    mkdir(logdir)
-    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
-    filepath = opj(logdir, filename)
-    logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s: %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename=filepath,
-                    level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    common.utils.logger = logger
-    return logger
+from common.utils import error
 
 
 def get_extradata(name):
@@ -131,7 +97,7 @@ def get_current_zoneinfo():
 @common.utils.timing
 def get_zonefiles(force):
     for i in ('destdir', 'workdir',):
-        mkdir(cfg['default'][i])
+        common.utils.mkdir(cfg['default'][i])
 
     lockfile = opj(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
@@ -150,16 +116,10 @@ def get_zonefiles(force):
                 updated = True
                 get_zone(zone, filename)
         if updated and 'postcommand' in cfg['default']:
-            run_postcommand()
+            common.utils.run_postcommand()
         lock.release()
     else:
         logger.warning(f"Could not lock on {lockfile}")
-
-
-@common.utils.timing
-def run_postcommand():
-    command = json.loads(cfg['default']['postcommand'])
-    subprocess.run(command)
 
 
 def main():
@@ -181,7 +141,8 @@ def main():
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
-    logger = setup_logging()
+    common.utils.cfg = cfg
+    logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg['mreg'], logger=logger)
     get_zonefiles(args.force)
 

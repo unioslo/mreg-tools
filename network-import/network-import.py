@@ -1,9 +1,7 @@
 import argparse
 import configparser
-import datetime
 import ipaddress
 import logging
-import os
 import pathlib
 import re
 import sys
@@ -17,6 +15,9 @@ import requests
 parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
 import common.connection
+import common.utils
+
+from common.utils import error
 
 basepath = "/api/v1/networks/"
 
@@ -30,40 +31,8 @@ delete_ptrs = defaultdict(list)
 delete_hosts = set()
 
 
-def error(message):
-    print("ERROR: " + message, file=sys.stderr)
-    logger.error(message)
-    sys.exit(1)
-
-
-def mkdir(path):
-    try:
-        os.makedirs(path, exist_ok=True)
-    except PermissionError as e:
-        error(f"{e}", code=e.errno)
-
-
 def networksort(networks):
     return sorted(networks, key=lambda i: ipaddress.ip_network(i))
-
-
-def setup_logging():
-    if cfg['default']['logdir']:
-        logdir = cfg['default']['logdir']
-    else:
-        error("No logdir defined in config file")
-
-    mkdir(logdir)
-    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
-    filepath = os.path.join(logdir, filename)
-    logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s: %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename=filepath,
-                    level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    common.utils.logger = logger
-    return logger
 
 
 def read_tags():
@@ -495,7 +464,8 @@ def main():
     cfg = configparser.ConfigParser()
     cfg.read_file(open(args.config), args.config)
 
-    logger = setup_logging()
+    common.utils.cfg = cfg
+    logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg['mreg'], logger=logger)
     sync_with_mreg(args)
 
