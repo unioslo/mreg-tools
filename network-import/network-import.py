@@ -21,7 +21,6 @@ from common.utils import error
 
 basepath = "/api/v1/networks/"
 
-mreg_data = {}
 import_v4 = {}
 import_v6 = {}
 location_tags = set()
@@ -29,6 +28,7 @@ category_tags = set()
 delete_ips = defaultdict(list)
 delete_ptrs = defaultdict(list)
 delete_hosts = set()
+unremoveable_networks = []
 
 
 def networksort(networks):
@@ -113,7 +113,7 @@ def overlap_check(network, tree, points):
         tree[begin:end] = network
 
 
-def removable(oldnet, newnets=[]):
+def check_removable(oldnet, newnets=[]):
     # An empty networks is obviously removable
     if empty_network(oldnet):
         return
@@ -198,7 +198,7 @@ def removable(oldnet, newnets=[]):
         for hostname, reasons in not_delete.items():
             message += "\n\thost {}, reason(s): {}".format(hostname,
                                                            ", ".join(reasons))
-        error(message)
+        unremoveable_networks.append(message)
 
 
 def shrink_networks(shrink, import_data, args):
@@ -319,13 +319,16 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
         networks_post.remove(newnet)
 
     for oldnet, newnets in networks_shrink.items():
-        removable(oldnet, newnets=newnets)
+        check_removable(oldnet, newnets=newnets)
         networks_delete.remove(oldnet)
         networks_post -= newnets
 
     # Check if networks marked for deletion is removable
     for network in networks_delete:
-        removable(network)
+        check_removable(network)
+
+    if unremoveable_networks:
+        error(''.join(unremoveable_networks))
 
     # Check if networks marked for creation have any overlap with existing networks
     # We also check this serverside, but just in case...
@@ -379,7 +382,7 @@ def check_changes_size(ipversion, num_current, args, *changes):
             logging.info(f"Changing {diffsize:.0f}% of the ipv{ipversion} networks.")
 
 
-def update_mreg(import_data, args, *changes):
+def update_mreg(mreg_data, import_data, args, *changes):
     networks_post, networks_patch, networks_delete, networks_grow, networks_shrink = changes
     logging.info("------ API REQUESTS START ------")
 
@@ -405,7 +408,7 @@ def update_mreg(import_data, args, *changes):
         path = f"{basepath}{network}"
         if not args.dryrun:
             conn.delete(path)
-        logging.info(f"DELETE {path}")
+        logging.info(f"DELETE {path} - {mreg_data[network]['description']}")
 
     for network in networksort(networks_post):
         data = import_data[network]
@@ -435,7 +438,7 @@ def sync_with_mreg(args):
         changes = compare_with_mreg(ipversion, import_data, mreg_data[ipversion])
         if any(len(i) for i in changes):
             check_changes_size(ipversion, len(mreg_data[ipversion]), args, *changes)
-            update_mreg(import_data, args, *changes)
+            update_mreg(mreg_data[ipversion], import_data, args, *changes)
         else:
             logging.info(f"No changes for ipv{ipversion} networks")
     logging.info(f"Done import of {args.networkfile}")
