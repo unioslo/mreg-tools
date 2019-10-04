@@ -110,10 +110,10 @@ def compare_file_size(oldfile, newfile, f):
     diff_percent = (len(newlines)-old_count)/old_count*100
     if abs(diff_percent) > diff_limit:
         raise TooManyLineChanges(newfile,
-                f"New file changed too much: {diff_percent:.2f}%, limit {diff_limit}%")
+                f"New file, {newfile}, changed too much: {diff_percent:.2f}%, limit {diff_limit}%")
 
 
-def write_file(filename, f):
+def write_file(filename, f, ignore_size_change=False):
     dstfile = os.path.join(cfg['default']['destdir'], filename)
     encoding = cfg['default'].get('fileencoding', 'utf-8')
 
@@ -126,7 +126,8 @@ def write_file(filename, f):
     shutil.copyfileobj(f, tempf)
 
     if os.path.isfile(dstfile):
-        compare_file_size(dstfile, tempf.name, f)
+        if not ignore_size_change:
+            compare_file_size(dstfile, tempf.name, f)
         if cfg['default'].getboolean('keepoldfile', True):
             os.chmod(f"{dstfile}_old", stat.S_IRUSR | stat.S_IWUSR)
             shutil.copy2(dstfile, f"{dstfile}_old")
