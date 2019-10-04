@@ -3,9 +3,12 @@ import json
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 
+from difflib import unified_diff
 from functools import wraps
 from time import time
 
@@ -14,6 +17,27 @@ from iso8601 import parse_date
 
 cfg = None
 logger = None
+# Maximum size change in percent for each line count threshold
+COMPARE_LIMITS_LINES = {100: 20,
+                        1000: 15,
+                        10000: 10,
+                        sys.maxsize: 10}
+# Absolute minimum file size, in lines
+ABSOLUTE_MIN_SIZE = 10
+
+class TooManyLineChanges(Exception):
+
+    def __init__(self, newfile, origfile, message):
+        self.newfile = newfile
+        self.origfile = origfile
+        self.message = message
+
+
+class TooSmallNewFile(Exception):
+    def __init__(self, newfile, message):
+        self.newfile = newfile
+        self.message = message
+
 
 def error(msg, code=os.EX_UNAVAILABLE):
     if logger:
@@ -47,17 +71,66 @@ def getLogger():
     return logger
 
 
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        logging.info(f'func:{f.__name__} args:[{args}, {kw}] took: {te-ts:.4} sec')
+        return result
+    return wrap
+
+
+@timing
+def compare_file_size(oldfile, newfile, f):
+    """
+    Compare filesizes with the new and old file, and if difference
+    above values in COMPARE_LIMITS_LINES, raise an exception.
+    """
+    f.seek(0)
+    newlines = f.readlines()
+    del f
+    if len(newlines) < ABSOLUTE_MIN_SIZE:
+        raise TooSmallNewFile(newfile, f'new file less than {ABSOLUTE_MIN_SIZE} lines')
+    with open(oldfile, 'r') as old:
+        oldlines = old.readlines()
+
+    difference = list(unified_diff(oldlines, newlines, fromfile=oldfile, tofile='mreg', n=0))
+    if len(difference) == 0:
+        return
+    old_count = len(oldlines)
+    diff_limit = cfg['default'].getint('max_line_change_percent')
+    if diff_limit == None:
+        for linecount, limit in COMPARE_LIMITS_LINES.items():
+            if old_count < linecount:
+                diff_limit = limit
+
+    diff_percent = abs(int((old_count-len(newlines))/old_count*100))
+    if diff_percent > diff_limit:
+        raise TooManyLineChanges(newfile, oldfile, diff_percent)
+
+
 def write_file(filename, f):
     dstfile = os.path.join(cfg['default']['destdir'], filename)
     encoding = cfg['default'].get('fileencoding', 'utf-8')
 
-    # XXX: add difflib or ignore
+    tempf = tempfile.NamedTemporaryFile(delete=False, mode='w',
+                                        encoding=encoding,
+                                        dir=cfg['default']['workdir'],
+                                        prefix=f'{filename}.')
+    # Write first to make sure the workdir can hold the new file
+    f.seek(0)
+    shutil.copyfileobj(f, tempf)
+
     if os.path.isfile(dstfile):
-        os.rename(dstfile, f"{dstfile}_old")
-    with open(dstfile, 'w', encoding=encoding) as dest:
-        f.seek(0)
-        shutil.copyfileobj(f, dest)
-    os.chmod(dstfile, 0o400)
+        compare_file_size(dstfile, tempf.name, f)
+        if cfg['default'].getboolean('keepoldfile', True):
+            os.chmod(f"{dstfile}_old", stat.S_IRUSR|stat.S_IWUSR)
+            shutil.copy2(dstfile, f"{dstfile}_old")
+            os.chmod(f"{dstfile}_old", stat.S_IRUSR)
+    shutil.move(tempf.name, dstfile)
+    os.chmod(dstfile, stat.S_IRUSR)
 
 
 def read_json_file(filename):
@@ -75,17 +148,6 @@ def write_json_file(filename, info):
             return json.dump(info, f)
     except PermissionError:
         error(f"No permission to write to {filename}")
-
-
-def timing(f):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = time()
-        result = f(*args, **kw)
-        te = time()
-        logging.info(f'func:{f.__name__} args:[{args}, {kw}] took: {te-ts:.4} sec')
-        return result
-    return wrap
 
 
 @timing
