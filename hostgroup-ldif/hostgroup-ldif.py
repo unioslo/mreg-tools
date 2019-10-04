@@ -23,14 +23,14 @@ def create_ldif(hostgroups):
         common.utils.write_file(filename, f)
 
     f = io.StringIO()
-    if cfg['mreg'].getboolean('make_make_head'):
+    if cfg['mreg'].getboolean('make_head_entry'):
         head_entry = make_head_entry(cfg)
         f.write(entry_string(head_entry))
         f.write('\n')
     for entry in create_hostgroupsentries(hostgroups):
         f.write(entry_string(entry))
         f.write('\n')
-    write_file('hostgroups.ldif')
+    write_file(cfg['defaults']['filename'])
 
 
 def create_hostgroupsentries(hostgroups):
@@ -111,7 +111,10 @@ def main():
 
     for i in ('default', 'mreg', 'ldif'):
         if i not in cfg:
-            error(logger, f"Missing section {i} in config file", os.EX_CONFIG)
+            error(f"Missing section {i} in config file", os.EX_CONFIG)
+
+    if 'filename' not in cfg['default']:
+        error(f"Missing 'filename' in default section in config file", os.EX_CONFIG)
 
     common.utils.cfg = cfg
     logger = common.utils.getLogger()

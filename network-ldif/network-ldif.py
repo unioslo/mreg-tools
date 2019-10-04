@@ -100,10 +100,10 @@ def main():
 
     for i in ('default', 'mreg', 'ldif'):
         if i not in cfg:
-            error(logger, f"Missing section {i} in config file", os.EX_CONFIG)
+            error(f"Missing section {i} in config file", os.EX_CONFIG)
 
-    if not cfg['default']['filename']:
-        error(logger, f"Missing 'filename' in default section in config file", os.EX_CONFIG)
+    if 'filename' not in cfg['default']:
+        error(f"Missing 'filename' in default section in config file", os.EX_CONFIG)
 
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
