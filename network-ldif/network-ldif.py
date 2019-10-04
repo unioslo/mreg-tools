@@ -19,10 +19,7 @@ from common.utils import error
 from common.LDIFutils import entry_string, make_head_entry
 
 
-def create_ldif(networks):
-    def write_file(filename):
-        common.utils.write_file(filename, f)
-
+def create_ldif(networks, ignore_size_change):
     f = io.StringIO()
     dn = cfg['ldif']['dn']
     head_entry = make_head_entry(cfg)
@@ -44,7 +41,11 @@ def create_ldif(networks):
             entry['uioVlanID'] = i['vlan']
         f.write(entry_string(entry))
         f.write('\n')
-    write_file('networks.ldif')
+    try:
+        common.utils.write_file(cfg['default']['filename'], f,
+                                ignore_size_change=ignore_size_change)
+    except common.utils.TooManyLineChanges as e:
+        error(e.message)
 
 
 @common.utils.timing
@@ -67,9 +68,9 @@ def network_ldif(args, url):
     lockfile = os.path.join(cfg['default']['workdir'], 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        if common.utils.updated_entries(conn, url, 'networks.json') or args.force:
+        if common.utils.updated_entries(conn, url, 'networks.json') or args.force_check:
             networks = get_networks(url, cfg['mreg'].getboolean('ipv6networks'))
-            create_ldif(networks)
+            create_ldif(networks, args.ignore_size_change)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
         else:
@@ -85,9 +86,12 @@ def main():
     parser.add_argument("--config",
                         default="network-ldif.conf",
                         help="path to config file (default: %(default)s)")
-    parser.add_argument('--force',
+    parser.add_argument('--force-check',
                         action='store_true',
-                        help='force update')
+                        help='force refresh of data from mreg')
+    parser.add_argument('--ignore-size-change',
+                        action='store_true',
+                        help='ignore size changes')
     args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
@@ -97,6 +101,9 @@ def main():
     for i in ('default', 'mreg', 'ldif'):
         if i not in cfg:
             error(logger, f"Missing section {i} in config file", os.EX_CONFIG)
+
+    if not cfg['default']['filename']:
+        error(logger, f"Missing 'filename' in default section in config file", os.EX_CONFIG)
 
     common.utils.cfg = cfg
     logger = common.utils.getLogger()

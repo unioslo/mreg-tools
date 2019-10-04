@@ -2,6 +2,8 @@
 workdir = /tmp/mreg/workdir
 destdir = /tmp/mreg/dstdir
 logdir = /tmp/mreg/logdir
+filename = networks.ldif
+max_line_change_percent = 10
 #postcommand must be in json-friendly format
 #postcommand = ["sudo", "/path/to/script" ]
 
