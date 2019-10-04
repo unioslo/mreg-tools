@@ -25,11 +25,10 @@ COMPARE_LIMITS_LINES = {100: 20,
 # Absolute minimum file size, in lines
 ABSOLUTE_MIN_SIZE = 10
 
-class TooManyLineChanges(Exception):
 
-    def __init__(self, newfile, origfile, message):
+class TooManyLineChanges(Exception):
+    def __init__(self, newfile, message):
         self.newfile = newfile
-        self.origfile = origfile
         self.message = message
 
 
@@ -51,6 +50,7 @@ def mkdir(path):
         os.makedirs(path, exist_ok=True)
     except PermissionError as e:
         error(f"{e}", code=e.errno)
+
 
 def getLogger():
     global logger
@@ -96,19 +96,21 @@ def compare_file_size(oldfile, newfile, f):
     with open(oldfile, 'r') as old:
         oldlines = old.readlines()
 
-    difference = list(unified_diff(oldlines, newlines, fromfile=oldfile, tofile='mreg', n=0))
+    difference = list(unified_diff(oldlines, newlines, n=0))
     if len(difference) == 0:
         return
     old_count = len(oldlines)
-    diff_limit = cfg['default'].getint('max_line_change_percent')
-    if diff_limit == None:
+    diff_limit = cfg['default'].getfloat('max_line_change_percent')
+    if diff_limit is None:
         for linecount, limit in COMPARE_LIMITS_LINES.items():
             if old_count < linecount:
                 diff_limit = limit
+                break
 
-    diff_percent = abs(int((old_count-len(newlines))/old_count*100))
-    if diff_percent > diff_limit:
-        raise TooManyLineChanges(newfile, oldfile, diff_percent)
+    diff_percent = (len(newlines)-old_count)/old_count*100
+    if abs(diff_percent) > diff_limit:
+        raise TooManyLineChanges(newfile,
+                f"New file changed too much: {diff_percent:.2f}%, limit {diff_limit}%")
 
 
 def write_file(filename, f):
@@ -126,7 +128,7 @@ def write_file(filename, f):
     if os.path.isfile(dstfile):
         compare_file_size(dstfile, tempf.name, f)
         if cfg['default'].getboolean('keepoldfile', True):
-            os.chmod(f"{dstfile}_old", stat.S_IRUSR|stat.S_IWUSR)
+            os.chmod(f"{dstfile}_old", stat.S_IRUSR | stat.S_IWUSR)
             shutil.copy2(dstfile, f"{dstfile}_old")
             os.chmod(f"{dstfile}_old", stat.S_IRUSR)
     shutil.move(tempf.name, dstfile)
