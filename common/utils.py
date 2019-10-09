@@ -110,7 +110,7 @@ def compare_file_size(oldfile, newfile, f):
     diff_percent = (len(newlines)-old_count)/old_count*100
     if abs(diff_percent) > diff_limit:
         raise TooManyLineChanges(newfile,
-                f"New file, {newfile}, changed too much: {diff_percent:.2f}%, limit {diff_limit}%")
+                f"New file {newfile} changed too much: {diff_percent:.2f}%, limit {diff_limit}%")
 
 
 def write_file(filename, f, ignore_size_change=False):
@@ -129,9 +129,11 @@ def write_file(filename, f, ignore_size_change=False):
         if not ignore_size_change:
             compare_file_size(dstfile, tempf.name, f)
         if cfg['default'].getboolean('keepoldfile', True):
-            os.chmod(f"{dstfile}_old", stat.S_IRUSR | stat.S_IWUSR)
-            shutil.copy2(dstfile, f"{dstfile}_old")
-            os.chmod(f"{dstfile}_old", stat.S_IRUSR)
+            oldfile = f"{dstfile}_old"
+            if os.path.isfile(oldfile):
+                os.chmod(oldfile, stat.S_IRUSR | stat.S_IWUSR)
+            shutil.copy2(dstfile, oldfile)
+            os.chmod(oldfile, stat.S_IRUSR)
     shutil.move(tempf.name, dstfile)
     os.chmod(dstfile, stat.S_IRUSR)
 
