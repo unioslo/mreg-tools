@@ -24,7 +24,7 @@ def get_extradata(name):
     if cfg['default']['extradir']:
         extrafile = opj(cfg['default']['extradir'], f"{name}_extra")
         try:
-            with open(extrafile, 'rb') as extra:
+            with open(extrafile, 'r') as extra:
                 return extra.read()
         except FileNotFoundError:
             pass
