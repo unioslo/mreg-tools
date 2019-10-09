@@ -1,11 +1,10 @@
 import argparse
 import configparser
 import datetime
+import io
 import os
 import pathlib
-import shutil
 import sys
-import tempfile
 from os.path import join as opj
 
 import fasteners
@@ -58,28 +57,28 @@ def update_zone(zone, name, zoneinfo):
 
 
 @common.utils.timing
-def get_zone(zone, name):
+def get_zone(zone, name, force):
     zonefile = conn.get(f"/api/v1/zonefiles/{zone}").text
     if zone.endswith('.arpa'):
         path = f'/api/v1/zones/reverse/{zone}'
     else:
         path = f'/api/v1/zones/forward/{zone}'
+    f = io.StringIO()
     zoneinfo = conn.get(path).json()
-    with tempfile.TemporaryFile(dir=cfg['default']['workdir']) as f:
-        f.write(zonefile.encode())
-        dstfile = opj(cfg['default']['destdir'], name)
-        if os.path.isfile(dstfile):
-            os.rename(dstfile, f"{dstfile}_old")
-        with open(dstfile, 'wb') as dest:
-            extradata = get_extradata(name)
-            f.seek(0)
-            shutil.copyfileobj(f, dest)
-            if extradata:
-                dest.write(extradata)
-        os.chmod(dstfile, 0o400)
+    f.write(zonefile)
+    extradata = get_extradata(name)
+    if extradata:
+        f.write(extradata)
 
     if zoneinfo['serialno'] % 100 == 99:
         logger.warning(f"{name}: reached max serial (99)")
+    try:
+        common.utils.write_file(name, f, ignore_size_change=force)
+    except common.utils.TooManyLineChanges as e:
+        logger.error(e.message)
+        print(f"ERROR: {e.message}", file=sys.stderr)
+        return
+
     jsonfile = opj(cfg['default']['workdir'], f"{name}.json")
     common.utils.write_json_file(jsonfile, zoneinfo)
 
@@ -114,7 +113,7 @@ def get_zonefiles(force):
                 filename = zone
             if update_zone(zone, filename, allzoneinfo[zone]) or force:
                 updated = True
-                get_zone(zone, filename)
+                get_zone(zone, filename, force)
         if updated and 'postcommand' in cfg['default']:
             common.utils.run_postcommand()
         lock.release()
