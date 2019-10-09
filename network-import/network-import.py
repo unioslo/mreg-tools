@@ -175,6 +175,7 @@ def check_removable(oldnet, newnets=[]):
 
         if len(host['txts']):
             if len(host['txts']) == 1:
+                # Ignore the default spf set on most hosts.
                 if host['txts'][0]['txt'] != 'v=spf1 -all':
                     not_delete[hostname].append('txts')
             else:
@@ -459,7 +460,7 @@ def main():
                         help="Allow more than MAX_SIZE_CHANGE changes",
                         action="store_true")
     parser.add_argument("--max-size-change",
-                        help="Max changes (change and delete) in percent",
+                        help="Max changes (change and delete) in percent (default: %(default)s)",
                         type=int,
                         default=20)
     args = parser.parse_args()
