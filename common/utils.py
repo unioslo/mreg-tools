@@ -124,6 +124,7 @@ def write_file(filename, f, ignore_size_change=False):
     # Write first to make sure the workdir can hold the new file
     f.seek(0)
     shutil.copyfileobj(f, tempf)
+    tempf.close()
 
     if os.path.isfile(dstfile):
         if not ignore_size_change:
