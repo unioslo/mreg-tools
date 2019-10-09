@@ -47,7 +47,7 @@ def read_tags():
                              """, re.X)
         for line_number, line in enumerate(tagfile, 1):
             line = line.strip()
-            if line.startswith("#"):
+            if line.startswith("#") or len(line) == 0:
                 continue
 
             res = flag_re.match(line)
