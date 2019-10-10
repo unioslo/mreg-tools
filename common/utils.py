@@ -38,6 +38,16 @@ class TooSmallNewFile(Exception):
         self.message = message
 
 
+def UmaskNamedTemporaryFile(*args, **kwargs):
+    f = tempfile.NamedTemporaryFile(*args, **kwargs)
+    oldmask = None
+    if cfg['default']['umask']:
+        umask = int(cfg['default']['umask'], 8)
+        oldmask = os.umask(umask)
+        os.chmod(f.name, 0o666 & ~umask)
+    return f, oldmask
+
+
 def error(msg, code=os.EX_UNAVAILABLE):
     if logger:
         logger.error(msg)
@@ -117,10 +127,10 @@ def write_file(filename, f, ignore_size_change=False):
     dstfile = os.path.join(cfg['default']['destdir'], filename)
     encoding = cfg['default'].get('fileencoding', 'utf-8')
 
-    tempf = tempfile.NamedTemporaryFile(delete=False, mode='w',
-                                        encoding=encoding,
-                                        dir=cfg['default']['workdir'],
-                                        prefix=f'{filename}.')
+    tempf, oldmask = UmaskNamedTemporaryFile(delete=False, mode='w',
+                                             encoding=encoding,
+                                             dir=cfg['default']['workdir'],
+                                             prefix=f'{filename}.')
     # Write first to make sure the workdir can hold the new file
     f.seek(0)
     shutil.copyfileobj(f, tempf)
@@ -136,7 +146,11 @@ def write_file(filename, f, ignore_size_change=False):
             shutil.copy2(dstfile, oldfile)
             os.chmod(oldfile, stat.S_IRUSR)
     shutil.move(tempf.name, dstfile)
-    os.chmod(dstfile, stat.S_IRUSR)
+    if oldmask is not None:
+        # restore umask
+        os.umask(oldmask)
+    else:
+        os.chmod(dstfile, stat.S_IRUSR)
 
 
 def read_json_file(filename):
