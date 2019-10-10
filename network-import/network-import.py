@@ -254,12 +254,16 @@ def read_networks(filename):
                 vlan = res.group('vlan')
                 if vlan:
                     vlan = int(vlan)
-                desc = res.group('description')
+                desc = res.group('description').strip()
                 if not desc:
                     _error("Missing description.")
                 category = location = ''
                 tags = res.group('tags')
                 if tags:
+                    # For now, add tags with the bar to the description to
+                    # to keep backward compability. Maybe the network.ldif export
+                    # can add category and location as attributes and then revert this?
+                    desc = f':{tags}:|{desc}'
                     for tag in tags.split(':'):
                         if tag in location_tags:
                             location = tag
@@ -271,7 +275,7 @@ def read_networks(filename):
                                     line_number, tag))
                 data = {
                     'network': network_str,
-                    'description': desc.strip(),
+                    'description': desc,
                     'vlan': vlan,
                     'category': category.strip(),
                     'location': location
