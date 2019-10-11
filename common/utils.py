@@ -41,7 +41,7 @@ class TooSmallNewFile(Exception):
 def UmaskNamedTemporaryFile(*args, **kwargs):
     f = tempfile.NamedTemporaryFile(*args, **kwargs)
     oldmask = None
-    if cfg['default']['umask']:
+    if cfg.has_option('default', 'umask'):
         umask = int(cfg['default']['umask'], 8)
         oldmask = os.umask(umask)
         os.chmod(f.name, 0o666 & ~umask)
