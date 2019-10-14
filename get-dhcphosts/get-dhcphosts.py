@@ -23,6 +23,8 @@ from common.utils import error
 
 def create_files(dhcphosts, onefile):
     def write_file(filename):
+        # 5 lines is a group with domain and a single host.
+        common.utils.ABSOLUTE_MIN_SIZE = 5
         common.utils.write_file(filename, f)
 
     f = io.StringIO()
@@ -30,11 +32,9 @@ def create_files(dhcphosts, onefile):
     for domain in sorted(list(dhcphosts.keys()), key=lambda i: list(reversed(i.split('.')))):
         hosts = dhcphosts[domain]
         f.write("group { \n")
-        f.write(f"    option domain-name \"{domain}\";\n")
+        f.write(f"    option domain-name \"{domain}\";\n\n")
         for hostname, mac, ip in hosts:
-            info = f"""
-    host {hostname} {{ hardware ethernet {mac}; fixed-address {ip}; }}
-"""
+            info = f"    host {hostname} {{ hardware ethernet {mac}; fixed-address {ip}; }}\n"
             f.write(info)
         f.write("}\n")
 
