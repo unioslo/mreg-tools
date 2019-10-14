@@ -158,7 +158,7 @@ def read_json_file(filename):
         with open(filename, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, EOFError):
-        logging.warning(f"Could read data from {filename}")
+        logging.warning(f"Could not read data from {filename}")
         return None
 
 
