@@ -9,6 +9,9 @@ needs_base64 = re.compile(r'\A[\s:<]|[\0-\37\177]|\s\Z').search
 def entry_string(entry):
 
     def handle_value(value):
+        # Ignore empty values
+        if isinstance(value, str) and not value:
+            return ''
         if isinstance(value, str) and needs_base64(value):
             value = str(b64encode(value.encode('utf-8')), 'utf-8')
             return f'{attr}:: {value}\n'
