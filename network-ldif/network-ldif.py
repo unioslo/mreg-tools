@@ -34,9 +34,16 @@ def create_ldif(networks, ignore_size_change):
             'description': i['description'],
             'ipNetworkNumber': str(network.network_address),
             'ipNetmaskNumber': str(network.netmask),
-            'uioIpAddressRangeStart': int(network.network_address),
-            'uioIpAddressRangeEnd': int(network.broadcast_address),
+            'uioNetworkCategory': sorted(i['category'].split(' ')),
+            'uioNetworkLocation': sorted(i['location'].split(' ')),
             }
+        if network.version == 4:
+            entry['uioIpAddressRangeStart'] = int(network.network_address)
+            entry['uioIpAddressRangeEnd'] = int(network.broadcast_address)
+        else:
+            # Hack until hbf figures out how to deal with them.
+            entry['#uioIpAddressRangeStart'] = str(network.network_address)
+            entry['#uioIpAddressRangeEnd'] = str(network.broadcast_address)
         if i['vlan'] is not None:
             entry['uioVlanID'] = i['vlan']
         f.write(entry_string(entry))
