@@ -15,16 +15,16 @@ def error(message, logger=None, code=os.EX_UNAVAILABLE):
 class Connection:
 
     def __init__(self, config, logger=None):
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+        else:
+            self.logger = logger
         for i in ('url', 'username', 'passwordfile',):
             if i not in config:
                 error(f"Need {i} in config")
             setattr(self, i, config[i])
         self._session = requests.Session()
         self.update_token()
-        if logger is None:
-            self.logger = logging.getLogger(__name__)
-        else:
-            self.logger = logger
 
     def get(self, path: str) -> requests.Response:
         """Uses requests to make a get request."""
