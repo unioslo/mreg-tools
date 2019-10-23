@@ -260,10 +260,6 @@ def read_networks(filename):
                 category = location = ''
                 tags = res.group('tags')
                 if tags:
-                    # For now, add tags with the bar to the description to
-                    # to keep backward compability. Maybe the network.ldif export
-                    # can add category and location as attributes and then revert this?
-                    desc = f':{tags}:|{desc}'
                     for tag in tags.split(':'):
                         if tag in location_tags:
                             location = tag
