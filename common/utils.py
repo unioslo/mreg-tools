@@ -18,7 +18,8 @@ from iso8601 import parse_date
 cfg = None
 logger = None
 # Maximum size change in percent for each line count threshold
-COMPARE_LIMITS_LINES = {100: 20,
+COMPARE_LIMITS_LINES = {50: 30,
+                        100: 20,
                         1000: 15,
                         10000: 10,
                         sys.maxsize: 10}
