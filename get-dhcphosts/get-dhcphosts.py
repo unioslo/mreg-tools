@@ -47,7 +47,7 @@ def create_files(dhcphosts, onefile):
             write_file(domain)
             f = io.StringIO()
     if onefile:
-        write_file('hosts.conf')
+        write_file(cfg['default'].get('filename', 'hosts.conf'))
 
 
 def create_url():
