@@ -18,7 +18,7 @@ from iso8601 import parse_date
 cfg = None
 logger = None
 # Maximum size change in percent for each line count threshold
-COMPARE_LIMITS_LINES = {50: 30,
+COMPARE_LIMITS_LINES = {50: 50,
                         100: 20,
                         1000: 15,
                         10000: 10,
@@ -94,16 +94,11 @@ def timing(f):
 
 
 @timing
-def compare_file_size(oldfile, newfile, f):
+def compare_file_size(oldfile, newfile, newlines):
     """
     Compare filesizes with the new and old file, and if difference
     above values in COMPARE_LIMITS_LINES, raise an exception.
     """
-    f.seek(0)
-    newlines = f.readlines()
-    del f
-    if len(newlines) < ABSOLUTE_MIN_SIZE:
-        raise TooSmallNewFile(newfile, f'new file less than {ABSOLUTE_MIN_SIZE} lines')
     with open(oldfile, 'r') as old:
         oldlines = old.readlines()
 
@@ -132,6 +127,10 @@ def write_file(filename, f, ignore_size_change=False):
                                              encoding=encoding,
                                              dir=cfg['default']['workdir'],
                                              prefix=f'{filename}.')
+    f.seek(0)
+    newlines = f.readlines()
+    if len(newlines) < ABSOLUTE_MIN_SIZE:
+        raise TooSmallNewFile(tempf.name, f'new file less than {ABSOLUTE_MIN_SIZE} lines')
     # Write first to make sure the workdir can hold the new file
     f.seek(0)
     shutil.copyfileobj(f, tempf)
@@ -139,7 +138,7 @@ def write_file(filename, f, ignore_size_change=False):
 
     if os.path.isfile(dstfile):
         if not ignore_size_change:
-            compare_file_size(dstfile, tempf.name, f)
+            compare_file_size(dstfile, tempf.name, newlines)
         if cfg['default'].getboolean('keepoldfile', True):
             oldfile = f"{dstfile}_old"
             if os.path.isfile(oldfile):
