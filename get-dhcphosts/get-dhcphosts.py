@@ -34,7 +34,12 @@ def create_files(dhcphosts, onefile):
         f.write("group { \n")
         f.write(f"    option domain-name \"{domain}\";\n\n")
         for hostname, mac, ip in hosts:
-            info = f"    host {hostname} {{ hardware ethernet {mac}; fixed-address {ip}; }}\n"
+            # Crude and cheap test to check for ipv6
+            if ':' in ip:
+                fixed = 'fixed-address6'
+            else:
+                fixed = 'fixed-address'
+            info = f"    host {hostname} {{ hardware ethernet {mac}; {fixed} {ip}; }}\n"
             f.write(info)
         f.write("}\n")
 
