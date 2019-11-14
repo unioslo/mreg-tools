@@ -1,0 +1,19 @@
+[default]
+workdir = /tmp/mreg/workdir
+destdir = /tmp/mreg/dstdir
+logdir = /tmp/mreg/logdir
+filename = hosts.ldif
+max_line_change_percent = 10
+#postcommand must be in json-friendly format
+#postcommand = ["sudo", "/path/to/script" ]
+
+[mreg]
+url = http://localhost:8000/
+username = mreguser
+passwordfile = /path/to/pwd
+
+[ldif]
+dn = cn=hosts,dc=example,dc=org
+cn = hosts
+description = Hosts at Example Inc.
+objectClass = top
