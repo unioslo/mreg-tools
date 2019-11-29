@@ -14,11 +14,11 @@ sys.path.append(str(parentdir))
 import common.connection
 import common.utils
 
-from common.utils import error
+from common.utils import error, updated_entries
 from common.LDIFutils import entry_string, make_head_entry
 
 
-def create_ldif(hosts, ignore_size_change):
+def create_ldif(hosts, srvs, ignore_size_change):
 
     def _base_entry(name):
         return {
@@ -27,10 +27,12 @@ def create_ldif(hosts, ignore_size_change):
             'objectClass': 'uioHostinfo',
             }
 
+    def _write(entry):
+        f.write(entry_string(entry))
+
     f = io.StringIO()
     dn = cfg['ldif']['dn']
-    head_entry = make_head_entry(cfg)
-    f.write(entry_string(head_entry))
+    _write(make_head_entry(cfg))
     for i in hosts:
         entry = _base_entry(i["name"])
         entry.update({
@@ -40,9 +42,11 @@ def create_ldif(hosts, ignore_size_change):
         mac = {ip['macaddress'] for ip in i['ipaddresses'] if ip['macaddress']}
         if mac:
             entry['uioHostMacAddr'] = sorted(mac)
-        f.write(entry_string(entry))
+        _write(entry)
         for cinfo in i["cnames"]:
-            f.write(entry_string(_base_entry(cinfo["name"])))
+            _write(_base_entry(cinfo["name"]))
+    for i in srvs:
+        _write(_base_entry(i["name"]))
     try:
         common.utils.write_file(cfg['default']['filename'], f,
                                 ignore_size_change=ignore_size_change)
@@ -51,7 +55,7 @@ def create_ldif(hosts, ignore_size_change):
 
 
 @common.utils.timing
-def get_hosts(url):
+def get_entries(url):
     if '?' in url:
         url += '&'
     else:
@@ -61,20 +65,28 @@ def get_hosts(url):
 
 
 @common.utils.timing
-def hosts_ldif(args, url):
+def hosts_ldif(args):
     for i in ('destdir', 'workdir',):
         common.utils.mkdir(cfg['default'][i])
 
-    if cfg.has_option('mreg', 'zone'):
-        zones = cfg['mreg']['zone']
-        url += f"?zone__name__in={zones}"
+    def _url(path):
+        url = requests.compat.urljoin(cfg["mreg"]["url"], path)
+        if cfg.has_option("mreg", "zone"):
+            zones = cfg["mreg"]["zone"]
+            url += f"?zone__name__in={zones}"
+        return url
+
+    hosts_url = _url("/api/v1/hosts/")
+    srvs_url = _url("/api/v1/srvs/")
 
     lockfile = os.path.join(cfg['default']['workdir'], __file__ + 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        if common.utils.updated_entries(conn, url, 'hosts.json') or args.force_check:
-            hosts = get_hosts(url)
-            create_ldif(hosts, args.ignore_size_change)
+        if updated_entries(conn, hosts_url, 'hosts.json') or \
+           updated_entries(conn, srvs_url, 'srvs.json') or args.force_check:
+            hosts = get_entries(hosts_url)
+            srvs = get_entries(srvs_url)
+            create_ldif(hosts, srvs, args.ignore_size_change)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
         else:
@@ -112,8 +124,7 @@ def main():
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg['mreg'])
-    url = requests.compat.urljoin(cfg["mreg"]["url"], '/api/v1/hosts/')
-    hosts_ldif(args, url)
+    hosts_ldif(args)
 
 
 if __name__ == '__main__':
