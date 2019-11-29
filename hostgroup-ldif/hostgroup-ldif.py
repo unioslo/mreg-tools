@@ -30,7 +30,7 @@ def create_ldif(hostgroups):
     for entry in create_hostgroupsentries(hostgroups):
         f.write(entry_string(entry))
         f.write('\n')
-    write_file(cfg['defaults']['filename'])
+    write_file(cfg['default']['filename'])
 
 
 def create_hostgroupsentries(hostgroups):
