@@ -31,6 +31,8 @@ def entry_string(entry):
             print(f'Unhandled value type {type(value)}, {value}')
             sys.exit(1)
 
+    if result != '':
+        result += '\n'
     return result
 
 
