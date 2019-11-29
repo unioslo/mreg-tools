@@ -11,6 +11,8 @@ max_line_change_percent = 10
 url = http://localhost:8000/
 username = mreguser
 passwordfile = /path/to/pwd
+# Limit to one or more zones
+# zone = example.org
 
 [ldif]
 dn = cn=hosts,dc=example,dc=org

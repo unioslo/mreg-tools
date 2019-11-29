@@ -23,21 +23,24 @@ def create_ldif(hosts, ignore_size_change):
     dn = cfg['ldif']['dn']
     head_entry = make_head_entry(cfg)
     f.write(entry_string(head_entry))
-    f.write('\n')
     for i in hosts:
-        cn = i['name']
+        hostname = i['name']
         entry = {
-            'dn': f'cn={cn},{dn}',
-            'host': cn,
+            'dn': f'host={hostname},{dn}',
+            'host': hostname,
             'objectClass': 'uioHostinfo',
             'uioHostComment':  i['comment'],
             'uioHostContact':  i['contact'],
             }
-        mac = [ip['macaddress'] for ip in i['ipaddresses'] if ip['macaddress']]
+        mac = {ip['macaddress'] for ip in i['ipaddresses'] if ip['macaddress']}
         if mac:
-            entry['uioHostMacAddr'] = mac
+            entry['uioHostMacAddr'] = sorted(mac)
         f.write(entry_string(entry))
-        f.write('\n')
+        for cinfo in i['cnames']:
+            cname = cinfo['name']
+            entry['dn'] = f'host={cname},{dn}'
+            entry['host'] = cname
+            f.write(entry_string(entry))
     try:
         common.utils.write_file(cfg['default']['filename'], f,
                                 ignore_size_change=ignore_size_change)
@@ -47,7 +50,12 @@ def create_ldif(hosts, ignore_size_change):
 
 @common.utils.timing
 def get_hosts(url):
-    return conn.get_list(url + '?page_size=1000&ordering=name')
+    if '?' in url:
+        url += '&'
+    else:
+        url += '?'
+    url += 'page_size=1000&ordering=name'
+    return conn.get_list(url)
 
 
 @common.utils.timing
@@ -55,7 +63,11 @@ def hosts_ldif(args, url):
     for i in ('destdir', 'workdir',):
         common.utils.mkdir(cfg['default'][i])
 
-    lockfile = os.path.join(cfg['default']['workdir'], 'lockfile')
+    if cfg.has_option('mreg', 'zone'):
+        zones = cfg['mreg']['zone']
+        url += f"?zone__name__in={zones}"
+
+    lockfile = os.path.join(cfg['default']['workdir'], __file__ + 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
         if common.utils.updated_entries(conn, url, 'hosts.json') or args.force_check:
