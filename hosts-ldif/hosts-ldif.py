@@ -38,8 +38,11 @@ def create_ldif(hosts, ignore_size_change):
         f.write(entry_string(entry))
         for cinfo in i['cnames']:
             cname = cinfo['name']
-            entry['dn'] = f'host={cname},{dn}'
-            entry['host'] = cname
+            entry = {
+                'dn': f'host={cname},{dn}',
+                'host': cname,
+                'objectClass': 'uioHostinfo',
+                }
             f.write(entry_string(entry))
     try:
         common.utils.write_file(cfg['default']['filename'], f,
