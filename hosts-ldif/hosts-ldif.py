@@ -19,31 +19,30 @@ from common.LDIFutils import entry_string, make_head_entry
 
 
 def create_ldif(hosts, ignore_size_change):
+
+    def _base_entry(name):
+        return {
+            'dn': f'host={name},{dn}',
+            'host': name,
+            'objectClass': 'uioHostinfo',
+            }
+
     f = io.StringIO()
     dn = cfg['ldif']['dn']
     head_entry = make_head_entry(cfg)
     f.write(entry_string(head_entry))
     for i in hosts:
-        hostname = i['name']
-        entry = {
-            'dn': f'host={hostname},{dn}',
-            'host': hostname,
-            'objectClass': 'uioHostinfo',
+        entry = _base_entry(i["name"])
+        entry.update({
             'uioHostComment':  i['comment'],
             'uioHostContact':  i['contact'],
-            }
+            })
         mac = {ip['macaddress'] for ip in i['ipaddresses'] if ip['macaddress']}
         if mac:
             entry['uioHostMacAddr'] = sorted(mac)
         f.write(entry_string(entry))
-        for cinfo in i['cnames']:
-            cname = cinfo['name']
-            entry = {
-                'dn': f'host={cname},{dn}',
-                'host': cname,
-                'objectClass': 'uioHostinfo',
-                }
-            f.write(entry_string(entry))
+        for cinfo in i["cnames"]:
+            f.write(entry_string(_base_entry(cinfo["name"])))
     try:
         common.utils.write_file(cfg['default']['filename'], f,
                                 ignore_size_change=ignore_size_change)
