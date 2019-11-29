@@ -24,7 +24,6 @@ def create_ldif(networks, ignore_size_change):
     dn = cfg['ldif']['dn']
     head_entry = make_head_entry(cfg)
     f.write(entry_string(head_entry))
-    f.write('\n')
     for network, i in networks.items():
         cn = i['network']
         entry = {
@@ -47,7 +46,6 @@ def create_ldif(networks, ignore_size_change):
         if i['vlan'] is not None:
             entry['uioVlanID'] = i['vlan']
         f.write(entry_string(entry))
-        f.write('\n')
     try:
         common.utils.write_file(cfg['default']['filename'], f,
                                 ignore_size_change=ignore_size_change)

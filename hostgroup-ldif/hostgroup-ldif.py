@@ -26,10 +26,8 @@ def create_ldif(hostgroups):
     if cfg['mreg'].getboolean('make_head_entry'):
         head_entry = make_head_entry(cfg)
         f.write(entry_string(head_entry))
-        f.write('\n')
     for entry in create_hostgroupsentries(hostgroups):
         f.write(entry_string(entry))
-        f.write('\n')
     write_file(cfg['default']['filename'])
 
 
