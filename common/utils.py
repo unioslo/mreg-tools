@@ -93,7 +93,6 @@ def timing(f):
     return wrap
 
 
-@timing
 def compare_file_size(oldfile, newfile, newlines):
     """
     Compare filesizes with the new and old file, and if difference
