@@ -170,10 +170,14 @@ def write_json_file(filename, info):
 
 
 @timing
-def updated_entries(conn, url, filename, obj_filter='?page_size=1&ordering=-updated_at') -> bool:
+def updated_entries(conn, url, filename, obj_filter='page_size=1&ordering=-updated_at') -> bool:
     """Check if first entry is unchanged"""
 
     filename = os.path.join(cfg['default']['workdir'], filename)
+    if '?' in url:
+        url += '&'
+    else:
+        url += '?'
     url += obj_filter
     new_data = conn.get(url).json()
     if new_data['count'] == 0:
