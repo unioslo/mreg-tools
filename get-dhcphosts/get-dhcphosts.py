@@ -103,7 +103,7 @@ def dhcphosts(args):
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
         entries_url = requests.compat.urljoin(cfg['mreg']['url'], '/api/v1/ipaddresses/')
-        obj_filter = '?macaddress__gt=""&page_size=1&ordering=-updated_at'
+        obj_filter = 'macaddress__gt=""&page_size=1&ordering=-updated_at'
         if common.utils.updated_entries(conn, entries_url, 'dhcp.json',
                                         obj_filter=obj_filter) or args.force:
             dhcphosts = get_dhcphosts(create_url())
