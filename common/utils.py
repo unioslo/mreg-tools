@@ -98,7 +98,8 @@ def compare_file_size(oldfile, newfile, newlines):
     Compare filesizes with the new and old file, and if difference
     above values in COMPARE_LIMITS_LINES, raise an exception.
     """
-    with open(oldfile, 'r') as old:
+    encoding = cfg['default'].get('fileencoding', 'utf-8')
+    with open(oldfile, 'r', encoding=encoding) as old:
         oldlines = old.readlines()
 
     difference = list(unified_diff(oldlines, newlines, n=0))
