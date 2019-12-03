@@ -21,11 +21,11 @@ import common.utils
 from common.utils import error
 
 
-def create_files(dhcphosts, onefile):
+def create_files(dhcphosts, onefile, force):
     def write_file(filename):
         # 5 lines is a group with domain and a single host.
         common.utils.ABSOLUTE_MIN_SIZE = 5
-        common.utils.write_file(filename, f)
+        common.utils.write_file(filename, f, ignore_size_change=force)
 
     f = io.StringIO()
     # Sort domain by tld, domain [,subdomain, [subdomain..]]
@@ -107,7 +107,7 @@ def dhcphosts(args):
         if common.utils.updated_entries(conn, entries_url, 'dhcp.json',
                                         obj_filter=obj_filter) or args.force:
             dhcphosts = get_dhcphosts(create_url())
-            create_files(dhcphosts, args.one_file)
+            create_files(dhcphosts, args.one_file, args.force)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
         else:
