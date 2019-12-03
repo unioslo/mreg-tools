@@ -200,5 +200,6 @@ def updated_entries(conn, url, filename, obj_filter='page_size=1&ordering=-updat
 
 @timing
 def run_postcommand():
+    timeout = cfg['default'].getint('postcommand_timeout', None)
     command = json.loads(cfg['default']['postcommand'])
-    subprocess.run(command)
+    subprocess.run(command, timeout=timeout)
