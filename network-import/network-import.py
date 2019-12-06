@@ -129,6 +129,10 @@ def check_removable(oldnet, newnets=[]):
                 res.add(ip)
         return res
 
+    delete_hosts.clear()
+    delete_ips.clear()
+    delete_ptrs.clear()
+
     newnets = [ipaddress.ip_network(i) for i in newnets]
     ptr_list = conn.get(f"{basepath}{oldnet}/ptroverride_list").json()
     used_list = conn.get(f"{basepath}{oldnet}/used_list").json()
@@ -165,8 +169,9 @@ def check_removable(oldnet, newnets=[]):
                 if info['ipaddress'] in ips:
                     delete_ips[hostname].append((info["id"], info["ipaddress"]))
             for info in host["ptr_overrides"]:
-                if info['ipaddress'] in ptrs:
-                    delete_ptrs[hostname].append((info["id"], info["ipaddress"]))
+                ptr_ip = info["ipaddress"]
+                if ptr_ip in ptrs and ptr_ip not in host_ips:
+                    delete_ptrs[hostname].append((info["id"], ptr_ip))
             continue
 
         for i in ('cnames', 'mxs',):
