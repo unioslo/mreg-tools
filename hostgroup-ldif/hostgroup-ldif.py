@@ -30,6 +30,9 @@ def create_ldif(hostgroups):
         f.write(entry_string(entry))
     write_file(cfg['default']['filename'])
 
+def get_objectclass():
+    return make_head_entry(cfg)['objectClass']
+
 
 def create_hostgroupsentries(hostgroups):
     ret = []
@@ -38,6 +41,7 @@ def create_hostgroupsentries(hostgroups):
         if not remove_domain.startswith('.'):
             remove_domain = f'.{remove_domain}'
         remove_len = len(remove_domain)
+    objectclass = get_objectclass()
     dn = cfg['ldif']['dn']
     encoding = cfg['default'].get('fileencoding', '')
 
@@ -51,7 +55,7 @@ def create_hostgroupsentries(hostgroups):
             'dn': f'cn={cn},{dn}',
             'cn': cn,
             'description': desc,
-            'objectClass': ('top', 'nisNetgroup'),
+            'objectClass': objectclass,
             }
         if i['groups']:
             entry['memberNisNetgroup'] = [g['name'] for g in i['groups']]

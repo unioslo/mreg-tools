@@ -21,5 +21,5 @@ make_head_entry = True
 dn = cn=netgroups,dc=example,dc=org
 description = All netgroups
 # Example if an entry should be used multiple times. Must quote strings.
-objectClass = ('top', 'organizationalUnit', )
+objectClass = ('top', 'nisNetgroup', )
 ou = netgroups
