@@ -35,7 +35,9 @@ def create_hostgroupsentries(hostgroups):
     ret = []
     remove_domain = cfg['mreg'].get('domain', None)
     if remove_domain:
-        remove_len = len(remove_domain) + 1
+        if not remove_domain.startswith('.'):
+            remove_domain = f'.{remove_domain}'
+        remove_len = len(remove_domain)
     dn = cfg['ldif']['dn']
     encoding = cfg['default'].get('fileencoding', '')
 
