@@ -1,0 +1,12 @@
+[default]
+workdir = /tmp/mreg/workdir
+destdir = /tmp/mreg/dstdir
+logdir = /tmp/mreg/logdir
+#fileencoding = utf-8
+#postcommand must be in json-friendly format
+#postcommand = ["sudo", "/path/to/script" ]
+
+[mreg]
+url = http://localhost:8000/
+username = mreguser
+passwordfile = /path/to/pwd
