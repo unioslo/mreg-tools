@@ -57,21 +57,23 @@ def update_zone(zone, name, zoneinfo):
 
 
 @common.utils.timing
-def get_zone(zone, name, force):
-    zonefile = conn.get(f"/api/v1/zonefiles/{zone}").text
+def get_zone(zone, name, force, filename_without_private_ranges=None):
+    # retrieve the zone as json data, and check the serial number
     if zone.endswith('.arpa'):
         path = f'/api/v1/zones/reverse/{zone}'
     else:
         path = f'/api/v1/zones/forward/{zone}'
-    f = io.StringIO()
     zoneinfo = conn.get(path).json()
+    if zoneinfo['serialno'] % 100 == 99:
+        logger.warning(f"{name}: reached max serial (99)")
+
+    # retrieve the zonefile, append extra data, and save it to a file
+    zonefile = conn.get(f"/api/v1/zonefiles/{zone}").text
+    f = io.StringIO()
     f.write(zonefile)
     extradata = get_extradata(name)
     if extradata:
         f.write(extradata)
-
-    if zoneinfo['serialno'] % 100 == 99:
-        logger.warning(f"{name}: reached max serial (99)")
     try:
         common.utils.write_file(name, f, ignore_size_change=force)
     except common.utils.TooManyLineChanges as e:
@@ -79,6 +81,21 @@ def get_zone(zone, name, force):
         print(f"ERROR: {e.message}", file=sys.stderr)
         return
 
+    # optionally, also export the same zonefile but with private address ranges filtered out
+    if filename_without_private_ranges:
+        zonefile = conn.get(f"/api/v1/zonefiles/{zone}?excludePrivate=yes").text
+        f = io.StringIO()
+        f.write(zonefile)
+        if extradata:
+            f.write(extradata)
+        try:
+            common.utils.write_file(filename_without_private_ranges, f, ignore_size_change=force)
+        except common.utils.TooManyLineChanges as e:
+            logger.error(e.message)
+            print(f"ERROR: {e.message}", file=sys.stderr)
+            return
+
+    # write the json data with the zone to a file
     jsonfile = opj(cfg['default']['workdir'], f"{name}.json")
     common.utils.write_json_file(jsonfile, zoneinfo)
 
@@ -113,7 +130,12 @@ def get_zonefiles(force):
                 filename = zone
             if update_zone(zone, filename, allzoneinfo[zone]) or force:
                 updated = True
-                get_zone(zone, filename, force)
+                altfn = None
+                try:
+                    altfn = cfg['zones_exclude_private'][zone]
+                except:
+                    pass
+                get_zone(zone, filename, force, altfn)
         if updated and 'postcommand' in cfg['default']:
             common.utils.run_postcommand()
         lock.release()
