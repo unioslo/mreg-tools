@@ -1,6 +1,7 @@
 import argparse
 import configparser
 import io
+import ipaddress
 import os
 import pathlib
 import sys
@@ -18,7 +19,7 @@ from common.utils import error, updated_entries
 from common.LDIFutils import entry_string, make_head_entry
 
 
-def create_ldif(hosts, srvs, ignore_size_change):
+def create_ldif(hosts, srvs, networks, ignore_size_change):
 
     def _base_entry(name):
         return {
@@ -29,6 +30,10 @@ def create_ldif(hosts, srvs, ignore_size_change):
 
     def _write(entry):
         f.write(entry_string(entry))
+
+    net2vlan = {}
+    for n in networks:
+        net2vlan[ipaddress.ip_network(n['network'])] = n['vlan']
 
     f = io.StringIO()
     dn = cfg['ldif']['dn']
@@ -42,6 +47,15 @@ def create_ldif(hosts, srvs, ignore_size_change):
         mac = {ip['macaddress'] for ip in i['ipaddresses'] if ip['macaddress']}
         if mac:
             entry['uioHostMacAddr'] = sorted(mac)
+        for ip in i['ipaddresses']:
+            ipaddr = ipaddress.ip_address(ip['ipaddress'])
+            for n,v in net2vlan.items():
+                if ipaddr in n:
+                    entry['uioVlanID'] = v
+                    break
+            else:
+                continue
+            break
         _write(entry)
         for cinfo in i["cnames"]:
             _write(_base_entry(cinfo["name"]))
@@ -78,15 +92,18 @@ def hosts_ldif(args):
 
     hosts_url = _url("/api/v1/hosts/")
     srvs_url = _url("/api/v1/srvs/")
+    network_url = _url("/api/v1/networks/")
 
     lockfile = os.path.join(cfg['default']['workdir'], __file__ + 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
         if updated_entries(conn, hosts_url, 'hosts.json') or \
-           updated_entries(conn, srvs_url, 'srvs.json') or args.force_check:
+           updated_entries(conn, srvs_url, 'srvs.json') or \
+           updated_entries(conn, network_url, 'networks.json') or args.force_check:
             hosts = get_entries(hosts_url)
             srvs = get_entries(srvs_url)
-            create_ldif(hosts, srvs, args.ignore_size_change)
+            networks = get_entries(network_url)
+            create_ldif(hosts, srvs, networks, args.ignore_size_change)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
         else:
