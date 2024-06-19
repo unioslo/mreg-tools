@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 
-from difflib import unified_diff
 from functools import wraps
 from time import time
 
@@ -102,9 +101,15 @@ def compare_file_size(oldfile, newfile, newlines):
     with open(oldfile, 'r', encoding=encoding) as old:
         oldlines = old.readlines()
 
-    difference = list(unified_diff(oldlines, newlines, n=0))
-    if len(difference) == 0:
-        return
+    if len(oldlines)==len(newlines):
+        different = False
+        for i in range(0, len(oldlines)):
+            if oldlines[i] != newlines[i]:
+                different = True
+                break
+        if not different:
+            return
+
     old_count = len(oldlines)
     diff_limit = cfg['default'].getfloat('max_line_change_percent')
     if diff_limit is None:
