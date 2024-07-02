@@ -2,6 +2,7 @@ import argparse
 import configparser
 import io
 import ipaddress
+import pickle
 import os
 import pathlib
 import sys
@@ -69,14 +70,23 @@ def create_ldif(hosts, srvs, networks, ignore_size_change):
 
 
 @common.utils.timing
-def get_entries(url):
+def get_entries(conn, url, name, force=False):
     if '?' in url:
         url += '&'
     else:
         url += '?'
     url += 'page_size=1000&ordering=name'
-    return conn.get_list(url)
 
+    filename = os.path.join(cfg['default']['workdir'], f"{name}.pickle")
+    updated = updated_entries(conn, url, f"{name}.json")
+    if updated or force:
+        objects = conn.get_list(url)
+        with open(filename, 'wb') as f:
+            pickle.dump(objects, f)
+    else:
+        with open(filename, 'rb') as f:
+            objects = pickle.load(f)
+    return updated, objects
 
 @common.utils.timing
 def hosts_ldif(args):
@@ -97,12 +107,11 @@ def hosts_ldif(args):
     lockfile = os.path.join(cfg['default']['workdir'], __file__ + 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        if updated_entries(conn, hosts_url, 'hosts.json') or \
-           updated_entries(conn, srvs_url, 'srvs.json') or \
-           updated_entries(conn, network_url, 'networks.json') or args.force_check:
-            hosts = get_entries(hosts_url)
-            srvs = get_entries(srvs_url)
-            networks = get_entries(network_url)
+        hosts_updated, hosts = get_entries(conn, hosts_url, 'hosts', force=args.force_check)
+        srvs_updated, srvs = get_entries(conn, srvs_url, 'srvs', force=args.force_check)
+        networks_updated, networks = get_entries(conn, network_url, 'networks', force=args.force_check)
+
+        if hosts_updated or srvs_updated or networks_updated or args.force_check:
             create_ldif(hosts, srvs, networks, args.ignore_size_change)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
