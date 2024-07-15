@@ -20,6 +20,64 @@ from common.utils import error, updated_entries
 from common.LDIFutils import entry_string, make_head_entry
 
 
+def create_ip_to_vlan_mapping(hosts, networks):
+    # Create and return a mapping between ip addresses and its vlan, if any
+    all_4ips = []
+    all_6ips = []
+    ip2vlan = {}
+    net4_to_vlan = {}
+    net6_to_vlan = {}
+
+    for n in networks:
+        if n['vlan'] is None:
+            continue
+        network = ipaddress.ip_network(n['network'])
+        if network.version == 4:
+            net4_to_vlan[network] = n['vlan']
+        else:
+            net6_to_vlan[network] = n['vlan']
+
+    for i in hosts:
+        host_ips = []
+        for ip in i['ipaddresses']:
+            ipaddr = ipaddress.ip_address(ip['ipaddress'])
+            if ipaddr.version == 4:
+                all_4ips.append(ipaddr)
+            else:
+                all_6ips.append(ipaddr)
+
+            host_ips.append(ipaddr)
+        # Store the ip list on the host object
+        i['ips'] = host_ips
+
+    for net_to_vlan, all_ips in ((net4_to_vlan, all_4ips),
+                                 (net6_to_vlan, all_6ips)):
+
+        networks = list(net_to_vlan.keys())
+        if not networks:
+            continue
+        lowest_network = networks.pop(0)
+        vlan = net_to_vlan[lowest_network]
+        for ip in sorted(all_ips):
+            if ip < lowest_network.network_address:
+                logger.debug(f"IP before first network: {ip}, {lowest_network}")
+                continue
+            elif ip in lowest_network:
+                ip2vlan[ip] = vlan
+                continue
+            else:
+                while lowest_network.broadcast_address < ip:
+                    if not networks:
+                        logger.info(f"IP after last network: {ip}")
+                        break
+                    lowest_network = networks.pop(0)
+                    vlan = net_to_vlan[lowest_network]
+                    if ip in lowest_network:
+                        ip2vlan[ip] = vlan
+
+    return ip2vlan
+
+
 def create_ldif(hosts, srvs, networks, ignore_size_change):
 
     def _base_entry(name):
@@ -32,9 +90,7 @@ def create_ldif(hosts, srvs, networks, ignore_size_change):
     def _write(entry):
         f.write(entry_string(entry))
 
-    net2vlan = {}
-    for n in networks:
-        net2vlan[ipaddress.ip_network(n['network'])] = n['vlan']
+    ip2vlan = create_ip_to_vlan_mapping(hosts, networks)
 
     f = io.StringIO()
     dn = cfg['ldif']['dn']
@@ -48,15 +104,11 @@ def create_ldif(hosts, srvs, networks, ignore_size_change):
         mac = {ip['macaddress'] for ip in i['ipaddresses'] if ip['macaddress']}
         if mac:
             entry['uioHostMacAddr'] = sorted(mac)
-        for ip in i['ipaddresses']:
-            ipaddr = ipaddress.ip_address(ip['ipaddress'])
-            for n,v in net2vlan.items():
-                if ipaddr in n:
-                    entry['uioVlanID'] = v
-                    break
-            else:
-                continue
-            break
+        for ipaddr in i['ips']:
+            if ipaddr in ip2vlan:
+                if not 'uioVlanID' in entry:
+                    entry['uioVlanID'] = set()
+                entry['uioVlanID'].add(ip2vlan[ipaddr])
         _write(entry)
         for cinfo in i["cnames"]:
             _write(_base_entry(cinfo["name"]))
@@ -70,7 +122,7 @@ def create_ldif(hosts, srvs, networks, ignore_size_change):
 
 
 @common.utils.timing
-def get_entries(conn, url, name, force=False):
+def get_entries(conn, url, name, update=True):
     if '?' in url:
         url += '&'
     else:
@@ -78,15 +130,14 @@ def get_entries(conn, url, name, force=False):
     url += 'page_size=1000&ordering=name'
 
     filename = os.path.join(cfg['default']['workdir'], f"{name}.pickle")
-    updated = updated_entries(conn, url, f"{name}.json")
-    if updated or force:
+    if update:
         objects = conn.get_list(url)
         with open(filename, 'wb') as f:
             pickle.dump(objects, f)
     else:
         with open(filename, 'rb') as f:
             objects = pickle.load(f)
-    return updated, objects
+    return objects
 
 @common.utils.timing
 def hosts_ldif(args):
@@ -102,21 +153,24 @@ def hosts_ldif(args):
 
     hosts_url = _url("/api/v1/hosts/")
     srvs_url = _url("/api/v1/srvs/")
-    network_url = _url("/api/v1/networks/")
+    networks_url = _url("/api/v1/networks/")
 
     lockfile = os.path.join(cfg['default']['workdir'], __file__ + 'lockfile')
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
-        hosts_updated, hosts = get_entries(conn, hosts_url, 'hosts', force=args.force_check)
-        srvs_updated, srvs = get_entries(conn, srvs_url, 'srvs', force=args.force_check)
-        networks_updated, networks = get_entries(conn, network_url, 'networks', force=args.force_check)
-
+        hosts_updated = updated_entries(conn, hosts_url, 'hosts.json')
+        srvs_updated = updated_entries(conn, srvs_url, 'srvs.json')
+        networks_updated = updated_entries(conn, networks_url, 'networks.json')
         if hosts_updated or srvs_updated or networks_updated or args.force_check:
+            hosts = get_entries(conn, hosts_url, 'hosts', update=hosts_updated or args.force_check)
+            srvs = get_entries(conn, srvs_url, 'srvs', update=srvs_updated or args.force_check)
+            networks = get_entries(conn, networks_url, 'networks', update=networks_updated or args.force_check)
+
             create_ldif(hosts, srvs, networks, args.ignore_size_change)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
         else:
-            logger.info("No updated hosts")
+            logger.info("No updates")
         lock.release()
     else:
         logger.warning(f"Could not lock on {lockfile}")
