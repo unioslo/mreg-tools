@@ -68,7 +68,7 @@ def create_ip_to_vlan_mapping(hosts, networks):
             else:
                 while lowest_network.broadcast_address < ip:
                     if not networks:
-                        logger.info(f"IP after last network: {ip}")
+                        logger.debug(f"IP after last network: {ip}")
                         break
                     lowest_network = networks.pop(0)
                     vlan = net_to_vlan[lowest_network]
