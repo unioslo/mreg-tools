@@ -22,6 +22,7 @@ from common.LDIFutils import entry_string, make_head_entry
 
 def create_ip_to_vlan_mapping(hosts, networks):
     # Create and return a mapping between ip addresses and its vlan, if any
+
     all_4ips = []
     all_6ips = []
     ip2vlan = {}
@@ -39,7 +40,7 @@ def create_ip_to_vlan_mapping(hosts, networks):
 
     for i in hosts:
         host_ips = []
-        for ip in i['ipaddresses']:
+        for ip in i['ipaddresses'] + i['ptr_overrides']:
             ipaddr = ipaddress.ip_address(ip['ipaddress'])
             if ipaddr.version == 4:
                 all_4ips.append(ipaddr)
@@ -52,28 +53,23 @@ def create_ip_to_vlan_mapping(hosts, networks):
 
     for net_to_vlan, all_ips in ((net4_to_vlan, all_4ips),
                                  (net6_to_vlan, all_6ips)):
-
-        networks = list(net_to_vlan.keys())
-        if not networks:
+        if not net_to_vlan:
             continue
-        lowest_network = networks.pop(0)
-        vlan = net_to_vlan[lowest_network]
+        networks = list(net_to_vlan.keys())
+        network = networks.pop(0)
+        vlan = net_to_vlan[network]
         for ip in sorted(all_ips):
-            if ip < lowest_network.network_address:
-                logger.debug(f"IP before first network: {ip}, {lowest_network}")
-                continue
-            elif ip in lowest_network:
-                ip2vlan[ip] = vlan
-                continue
+            while network.broadcast_address < ip:
+                if not networks:
+                    logger.debug(f"IP after last network: {ip}")
+                    break
+                network = networks.pop(0)
+                vlan = net_to_vlan[network]
+
+            if ip in network:
+               ip2vlan[ip] = vlan
             else:
-                while lowest_network.broadcast_address < ip:
-                    if not networks:
-                        logger.debug(f"IP after last network: {ip}")
-                        break
-                    lowest_network = networks.pop(0)
-                    vlan = net_to_vlan[lowest_network]
-                    if ip in lowest_network:
-                        ip2vlan[ip] = vlan
+                logger.debug(f"Not in network: {ip}, current network {network}")
 
     return ip2vlan
 
