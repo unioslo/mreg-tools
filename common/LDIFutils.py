@@ -25,6 +25,9 @@ def entry_string(entry):
         if isinstance(value, (list, tuple)):
             for val in value:
                 result += handle_value(val)
+        elif isinstance(value, set):
+            for val in sorted(value):
+                result += handle_value(val)
         elif isinstance(value, (int, str)):
             result += handle_value(value)
         else:

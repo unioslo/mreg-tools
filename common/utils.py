@@ -101,14 +101,8 @@ def compare_file_size(oldfile, newfile, newlines):
     with open(oldfile, 'r', encoding=encoding) as old:
         oldlines = old.readlines()
 
-    if len(oldlines)==len(newlines):
-        different = False
-        for i in range(0, len(oldlines)):
-            if oldlines[i] != newlines[i]:
-                different = True
-                break
-        if not different:
-            return
+    if newlines == oldlines:
+        return
 
     old_count = len(oldlines)
     diff_limit = cfg['default'].getfloat('max_line_change_percent')
