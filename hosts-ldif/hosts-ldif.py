@@ -161,7 +161,7 @@ def create_ldif(ldifdata, ignore_size_change):
             entry['uioHostMacAddr'] = sorted(mac)
         for ipaddr in i['ips']:
             if ipaddr in ip2vlan:
-                if not 'uioVlanID' in entry:
+                if 'uioVlanID' not in entry:
                     entry['uioVlanID'] = set()
                 entry['uioVlanID'].add(ip2vlan[ipaddr])
         _write(entry)
@@ -221,7 +221,7 @@ def main():
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
     if 'filename' not in cfg['default']:
-        error(f"Missing 'filename' in default section in config file", os.EX_CONFIG)
+        error("Missing 'filename' in default section in config file", os.EX_CONFIG)
 
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
