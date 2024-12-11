@@ -40,9 +40,7 @@ def update_zone(zone, name, zoneinfo):
         old_updated_at = parse_date(old_zoneinfo['updated_at'])
         old_serial_uat = parse_date(old_zoneinfo['serialno_updated_at'])
         updated_at = parse_date(zoneinfo['updated_at'])
-        if zoneinfo['updated']:
-            return True
-        elif old_updated_at == updated_at:
+        if old_updated_at == updated_at:
             logger.info(f"{name}: unchanged updated_at: {updated_at}")
             return False
         # mreg will only update the serialnumber once per minute, so no need to
