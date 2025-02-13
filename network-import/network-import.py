@@ -186,7 +186,7 @@ def check_removable(oldnet, newnets=[]):
             else:
                 not_delete[hostname].append('txts')
 
-        for reason, url in (('naptrs', f"/api/v1/naptrs/?host__id={host['id']}"),
+        for reason, url in (('naptrs', f"/api/v1/naptrs/?host={host['id']}"),
                             ('srvs', f"/api/v1/srvs/?host={host['id']}"),
                             ):
             ret = conn.get_list(url)
@@ -202,7 +202,7 @@ def check_removable(oldnet, newnets=[]):
     if not_delete:
         message = f"Can not remove {oldnet} due to:"
         for hostname, reasons in not_delete.items():
-            message += "\n\thost {}, reason(s): {}".format(hostname,
+            message += "\n\thost {}, reason(s): {}\n".format(hostname,
                                                            ", ".join(reasons))
         unremoveable_networks.append(message)
 
