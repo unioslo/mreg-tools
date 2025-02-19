@@ -21,7 +21,7 @@ import common.utils
 from common.utils import error
 
 
-def create_files(dhcphosts, onefile, force):
+def create_files(dhcphosts, onefile, force, useOption79=False):
     def write_file(filename):
         # 5 lines is a group with domain and a single host.
         common.utils.ABSOLUTE_MIN_SIZE = 5
@@ -35,12 +35,22 @@ def create_files(dhcphosts, onefile, force):
         f.write(f"    option domain-name \"{domain}\";\n\n")
         for hostname, mac, ip in hosts:
             # Crude and cheap test to check for ipv6
-            if ':' in ip:
-                fixed = 'fixed-address6'
+            if ':' in ip and useOption79:
+                #
+                # Handle IPv6 with v6relopt (RFC6939):
+                # host-identifier v6relopt 1 dhcp6.client-linklayer-addr 00:01:XX:XX:XX:XX:XX:XX;
+                # Explanation:
+                # - '00:01' => ARP hardware type = 1 (Ethernet)
+                # - Followed by the actual 6-byte MAC
+                #
+                mac79 = ':'.join(['0', '1', *mac.split(':')])
+
+                f.write(f"    host {hostname} {{\n")
+                f.write(f"        host-identifier v6relopt 1 dhcp6.client-linklayer-addr {mac79};\n")
+                f.write(f"        fixed-address6 {ip};\n")
+                f.write("    }\n")
             else:
-                fixed = 'fixed-address'
-            info = f"    host {hostname} {{ hardware ethernet {mac}; {fixed} {ip}; }}\n"
-            f.write(info)
+                f.write(f"    host {hostname} {{ hardware ethernet {mac}; fixed-address{'6' if ':' in ip else ''} {ip}; }}\n")
         f.write("}\n")
 
         if not onefile:
@@ -107,7 +117,7 @@ def dhcphosts(args):
         if common.utils.updated_entries(conn, entries_url, 'dhcp.json',
                                         obj_filter=obj_filter) or args.force:
             dhcphosts = get_dhcphosts(create_url())
-            create_files(dhcphosts, args.one_file, args.force)
+            create_files(dhcphosts, args.one_file, args.force, cfg.getboolean('default', 'useOption79'))
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
         else:
@@ -133,6 +143,8 @@ def main():
 
     cfg = configparser.ConfigParser()
     cfg.read(args.config)
+    # Make sure RFC6939 is disabled unless explicityly set as True
+    cfg['default']['useOption79']=cfg['default'].get('useOption79', 'false')
 
     for i in ('default', 'mreg'):
         if i not in cfg:
