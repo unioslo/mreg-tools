@@ -439,6 +439,8 @@ def sync_with_mreg(args):
     path = requests.compat.urljoin(basepath, "?page_size=1000")
     for i in conn.get_list(path):
         network = ipaddress.ip_network(i['network'])
+        if i['category'].startswith('mreg-managed:'):
+            continue
         mreg_data[network.version][i['network']] = i
     for ipversion, import_data in ((4, import_v4), (6, import_v6)):
         changes = compare_with_mreg(ipversion, import_data, mreg_data[ipversion])
