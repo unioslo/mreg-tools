@@ -164,6 +164,17 @@ def create_ldif(ldifdata, ignore_size_change):
                 if 'uioVlanID' not in entry:
                     entry['uioVlanID'] = set()
                 entry['uioVlanID'].add(ip2vlan[ipaddr])
+
+        # Add the host's community
+        communities = i["communities"]
+        if communities:
+            # NOTE: use only first community per host (FOR NOW!)
+            com = communities[0]["community"]
+            com_name = com["global_name"] or com["name"]
+        else:
+            com_name = "default"
+        entry["uioHostNetworkPolicy"] = com_name
+
         _write(entry)
         for cinfo in i["cnames"]:
             _write(_base_entry(cinfo["name"]))
