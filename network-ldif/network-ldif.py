@@ -45,8 +45,8 @@ def create_ldif(networks, ignore_size_change):
             }
         if i['vlan'] is not None:
             entry['uioVlanID'] = i['vlan']
-        if i['policy']:  # exists and not empty
-            entry['uioNetworkPolicy'] = i['policy']['name']
+        if i['policy'] and (pol_name := i['policy']['name']):
+            entry['uioNetworkPolicy'] = pol_name
         f.write(entry_string(entry))
     try:
         common.utils.write_file(cfg['default']['filename'], f,
