@@ -194,13 +194,24 @@ def get_host_communities(
 
 
 class HostPolicy(NamedTuple):
+    """Active network policy on a host for the given IP address."""
+
     policy: str
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address
     mac: str
-    attributes: list[str] = []
+    attributes: tuple[str, ...] = tuple()
 
 
-NetworkPolicyMappingType = dict[ipaddress.IPv4Network | ipaddress.IPv6Network, str]
+class NetworkPolicy(NamedTuple):
+    """Network policy with its attributes."""
+
+    name: str
+    attributes: tuple[str, ...] = tuple()
+
+
+NetworkPolicyMappingType = dict[
+    ipaddress.IPv4Network | ipaddress.IPv6Network, NetworkPolicy
+]
 """Mapping of network to policy name."""
 
 
@@ -209,10 +220,22 @@ def create_network_to_policy_mapping(
 ) -> NetworkPolicyMappingType:
     net_to_policy: NetworkPolicyMappingType = {}
     for n in networks:
-        if n["policy"] is None:
+        if (policy := n.get("policy")) is None:
             continue
         network = ipaddress.ip_network(n["network"])
-        net_to_policy[network] = n["policy"]["name"]
+
+        # Add all attributes with True values to the set of attributes
+        attributes: set[str] = set()
+        for attr in policy.get(
+            "attributes", []
+        ):  # list of dicts {"name": str, "value": bool}
+            if attr.get("value") is True and (name := attr.get("name")):
+                attributes.add(name)
+
+        net_to_policy[network] = NetworkPolicy(
+            name=policy["name"],
+            attributes=tuple(attributes),
+        )
     return net_to_policy
 
 
@@ -236,7 +259,14 @@ def get_host_policies(
             continue
         for network, policy in network2policy.items():
             if ip in network:
-                policies.add(HostPolicy(policy=policy, ip=ip, mac=mac))
+                policies.add(
+                    HostPolicy(
+                        policy=policy.name,
+                        ip=ip,
+                        mac=mac,
+                        attributes=tuple(policy.attributes),
+                    )
+                )
 
     return policies
 
