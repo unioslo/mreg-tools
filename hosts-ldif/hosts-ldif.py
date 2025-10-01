@@ -194,7 +194,7 @@ def get_host_communities(
 
 
 class HostPolicy(NamedTuple):
-    """Active network policy on a host for the given IP address."""
+    """Active network policy (on a host) for the given IP address."""
 
     policy: str
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -206,6 +206,8 @@ class NetworkPolicy(NamedTuple):
     """Network policy with its attributes."""
 
     name: str
+    description: str | None = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
+    prefix: str | None = None
     attributes: tuple[str, ...] = tuple()
 
 
@@ -222,7 +224,12 @@ def create_network_to_policy_mapping(
     for n in networks:
         if (policy := n.get("policy")) is None:
             continue
-        network = ipaddress.ip_network(n["network"])
+
+        try:
+            network = ipaddress.ip_network(n["network"])
+        except ValueError:
+            logger.warning(f"Invalid network {n['network']}")
+            continue
 
         # Add all attributes with True values to the set of attributes
         attributes: set[str] = set()
@@ -234,6 +241,8 @@ def create_network_to_policy_mapping(
 
         net_to_policy[network] = NetworkPolicy(
             name=policy["name"],
+            description=policy.get("description"),
+            prefix=policy.get("community_mapping_prefix"),
             attributes=tuple(attributes),
         )
     return net_to_policy
