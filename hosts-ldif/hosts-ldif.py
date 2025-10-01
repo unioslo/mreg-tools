@@ -164,22 +164,25 @@ class HostCommunity(NamedTuple):
 def get_host_communities(
     host: dict[str, Any], ip_mapping: IdToIpMappingType
 ) -> set[HostCommunity]:
+    """Get the set of communities a host belongs to.
+
+    Correlates the community object's IP address ID to IP and MAC addresses.
+    """
     communities: set[HostCommunity] = set()
     for community_obj in host["communities"]:
-        # Extract the IP address ID and community name
+        # Correlate the community's IP address ID to the full IP object
         ip_id = community_obj.get("ipaddress")
-        community = community_obj.get("community")
-        community_name = community.get("name")
-        community_global = community.get("global_name")
-
         ip_obj = ip_mapping.get(str(ip_id))
         if not ip_obj:
             logger.debug(f"No IP address found for ID {ip_id} on host {host['name']}")
             continue
-
         mac = ip_obj["macaddress"]
         ip = ip_obj["ipaddress"]
 
+        # Construct the HostCommunity object
+        community = community_obj.get("community")
+        community_name = community.get("name")
+        community_global = community.get("global_name")
         if community_name and ip and mac:
             communities.add(
                 HostCommunity(
@@ -251,6 +254,7 @@ def create_network_to_policy_mapping(
 def get_host_policies(
     host: dict[str, Any], network2policy: NetworkPolicyMappingType
 ) -> set[HostPolicy]:
+    """Get the set of network policies applied to a host."""
     policies: set[HostPolicy] = set()
     for ipaddr in host["ipaddresses"]:
         try:
@@ -260,12 +264,15 @@ def get_host_policies(
                 f"Invalid IP address {ipaddr['ipaddress']} on host {host['name']}"
             )
             continue
+        
         mac = ipaddr.get("macaddress")
         if not mac:
             logger.debug(
                 f"No MAC address for IP {ip} on host {host['name']}. Not including in policies."
             )
             continue
+        
+        # Correlate the IP address to its network policy
         for network, policy in network2policy.items():
             if ip in network:
                 policies.add(
@@ -278,10 +285,6 @@ def get_host_policies(
                 )
 
     return policies
-
-
-def policy_is_isolated(policy: HostPolicy) -> bool:
-    return "isolated" in policy.attributes
 
 
 @common.utils.timing
@@ -326,12 +329,12 @@ def create_ldif(ldifdata, ignore_size_change):
             host_net_policy: str | None = None
 
             communities = get_host_communities(i, id2ip)
-            # Host is part of a community. Add the first community found
             if communities:
+                # Host is part of a community. Add the first community found
                 # NOTE: use only first community per host (FOR NOW!)
                 com = next(iter(communities))
                 host_net_policy = com.name
-            elif any(policy_is_isolated(p) for p in policies):
+            elif any("isolated" in p.attributes for p in policies):
                 # Host is not part of a community, and its policy includes the isolated attribute
                 host_net_policy = "isolated"
 
