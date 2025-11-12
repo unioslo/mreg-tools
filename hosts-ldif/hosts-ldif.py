@@ -196,22 +196,34 @@ def get_host_communities(
     return communities
 
 
-class HostPolicy(NamedTuple):
-    """Active network policy (on a host) for the given IP address."""
-
-    policy: str
-    ip: ipaddress.IPv4Address | ipaddress.IPv6Address
-    mac: str
-    attributes: tuple[str, ...] = tuple()
-
 
 class NetworkPolicy(NamedTuple):
     """Network policy with its attributes."""
 
     name: str
     description: str | None = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
-    prefix: str | None = None
+    template_name: str | None = None
     attributes: tuple[str, ...] = tuple()
+
+class HostNetworkPolicy(NamedTuple):
+    """Active network policy (on a host) for the given IP address."""
+
+    policy: NetworkPolicy
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address
+    mac: str
+    attributes: tuple[str, ...] = tuple()
+
+
+class HostPolicies:
+    def __init__(self, policies: set[HostNetworkPolicy]):
+        self.policies = policies
+
+    def get_isolated_policy(self) -> HostNetworkPolicy | None:
+        """Get the first isolated policy for the host, if any."""
+        for policy in self.policies:
+            if "isolated" in policy.attributes:
+                return policy
+        return None
 
 
 NetworkPolicyMappingType = dict[
@@ -245,7 +257,7 @@ def create_network_to_policy_mapping(
         net_to_policy[network] = NetworkPolicy(
             name=policy["name"],
             description=policy.get("description"),
-            prefix=policy.get("community_mapping_prefix"),
+            template_name=policy.get("community_mapping_prefix") or policy.get("template_name"),
             attributes=tuple(attributes),
         )
     return net_to_policy
@@ -253,9 +265,9 @@ def create_network_to_policy_mapping(
 
 def get_host_policies(
     host: dict[str, Any], network2policy: NetworkPolicyMappingType
-) -> set[HostPolicy]:
+) -> HostPolicies:
     """Get the set of network policies applied to a host."""
-    policies: set[HostPolicy] = set()
+    policies: set[HostNetworkPolicy] = set()
     for ipaddr in host["ipaddresses"]:
         try:
             ip = ipaddress.ip_address(ipaddr["ipaddress"])
@@ -276,15 +288,15 @@ def get_host_policies(
         for network, policy in network2policy.items():
             if ip in network:
                 policies.add(
-                    HostPolicy(
-                        policy=policy.name,
+                    HostNetworkPolicy(
+                        policy=policy,
                         ip=ip,
                         mac=mac,
                         attributes=tuple(policy.attributes),
                     )
                 )
 
-    return policies
+    return HostPolicies(policies)
 
 
 @common.utils.timing
@@ -323,7 +335,7 @@ def create_ldif(ldifdata, ignore_size_change):
                     entry['uioVlanID'] = set()
                 entry['uioVlanID'].add(ip2vlan[ipaddr])
 
-        # Add the host's network policy (based on community primarily, else isolated)
+        # Add the host's network policy (using the community's global name, else isolated)
         policies = get_host_policies(i, net2policy)
         if policies:
             host_net_policy: str | None = None
@@ -334,9 +346,9 @@ def create_ldif(ldifdata, ignore_size_change):
                 # NOTE: use only first community per host (FOR NOW!)
                 com = next(iter(communities))
                 host_net_policy = com.name
-            elif any("isolated" in p.attributes for p in policies):
+            elif pol := policies.get_isolated_policy():
                 # Host is not part of a community, and its policy includes the isolated attribute
-                host_net_policy = "isolated"
+                host_net_policy = f"{pol.policy.template_name}_isolated"
 
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
