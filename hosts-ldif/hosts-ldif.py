@@ -202,7 +202,7 @@ class NetworkPolicy(NamedTuple):
 
     name: str
     description: str | None = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
-    template_name: str | None = None
+    community_template_pattern: str | None = None
     attributes: tuple[str, ...] = tuple()
 
 class HostNetworkPolicy(NamedTuple):
@@ -257,7 +257,7 @@ def create_network_to_policy_mapping(
         net_to_policy[network] = NetworkPolicy(
             name=policy["name"],
             description=policy.get("description"),
-            template_name=policy.get("community_mapping_prefix") or policy.get("template_name"),
+            community_template_pattern=policy.get("community_mapping_prefix") or policy.get("community_template_pattern"),
             attributes=tuple(attributes),
         )
     return net_to_policy
@@ -348,7 +348,7 @@ def create_ldif(ldifdata, ignore_size_change):
                 host_net_policy = com.name
             elif pol := policies.get_isolated_policy():
                 # Host is not part of a community, and its policy includes the isolated attribute
-                host_net_policy = f"{pol.policy.template_name}_isolated"
+                host_net_policy = f"{pol.policy.community_template_pattern}_isolated"
 
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
