@@ -26,7 +26,7 @@ def create_hosts(host_data):
 
     for host in host_data:
         # Handle new/old contact fields. 
-        # We don't know which version we are running against.
+        # We don't know which MREG server version we are running against.
         if contacts := host.get("contacts"):
             emails = " ".join(c.get("email", "") for c in contacts)
         else:
