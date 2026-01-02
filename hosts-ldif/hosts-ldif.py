@@ -154,12 +154,6 @@ class HostCommunity(NamedTuple):
     ip: str
     mac: str
 
-    @property
-    def name(self) -> str:
-        if self.community_global:
-            return self.community_global
-        return self.community
-
 
 def get_host_communities(
     host: dict[str, Any], ip_mapping: IdToIpMappingType
@@ -335,20 +329,30 @@ def create_ldif(ldifdata, ignore_size_change):
                     entry['uioVlanID'] = set()
                 entry['uioVlanID'].add(ip2vlan[ipaddr])
 
-        # Add the host's network policy (using the community's global name, else isolated)
+        # Add the host's network policy (using the community's global name, else <policy>_isolated)
         policies = get_host_policies(i, net2policy)
         if policies:
             host_net_policy: str | None = None
 
+            # Determine the community/policy name to use in the export
             communities = get_host_communities(i, id2ip)
             if communities:
                 # Host is part of a community. Add the first community found
                 # NOTE: use only first community per host (FOR NOW!)
+                # TODO: log if multiple communities per host?
                 com = next(iter(communities))
-                host_net_policy = com.name
+                host_net_policy = com.community_global or com.community
             elif pol := policies.get_isolated_policy():
                 # Host is not part of a community, and its policy includes the isolated attribute
-                host_net_policy = f"{pol.policy.community_template_pattern}_isolated"
+                # and it has a community template pattern
+                if pol.policy.community_template_pattern:
+                    host_net_policy = f"{pol.policy.community_template_pattern}_isolated"
+                else:
+                    logger.warning(
+                        "No community template pattern for isolated policy %s on host %s",
+                        pol.policy.name,
+                        i["name"],
+                    )
 
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
