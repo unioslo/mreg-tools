@@ -220,9 +220,6 @@ class HostPolicies:
     def __init__(self, policies: set[HostNetworkPolicy]):
         self.policies = policies
 
-    def __iter__(self) -> Iterator[HostNetworkPolicy]:
-        return iter(self.policies)
-
     def get_isolated_policy(self) -> HostNetworkPolicy | None:
         """Get the first isolated policy for the host, if any."""
         for policy in self.policies:
