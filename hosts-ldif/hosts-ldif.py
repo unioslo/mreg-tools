@@ -6,7 +6,7 @@ import pickle
 import os
 import pathlib
 import sys
-from typing import Any, NamedTuple
+from typing import Any, Iterator, NamedTuple
 
 import fasteners
 
@@ -199,6 +199,13 @@ class NetworkPolicy(NamedTuple):
     community_template_pattern: str | None = None
     attributes: tuple[str, ...] = tuple()
 
+    def get_isolated_name(self) -> str | None:
+        """Get the isolated community name for this policy, if applicable."""
+        if self.community_template_pattern:
+            return f"{self.community_template_pattern}_isolated"
+        logger.warning("No community template pattern for policy %s", self.name)
+        return None
+
 class HostNetworkPolicy(NamedTuple):
     """Active network policy (on a host) for the given IP address."""
 
@@ -209,6 +216,7 @@ class HostNetworkPolicy(NamedTuple):
 
 
 class HostPolicies:
+    """Set of network policies applied to a host."""
     def __init__(self, policies: set[HostNetworkPolicy]):
         self.policies = policies
 
@@ -336,23 +344,27 @@ def create_ldif(ldifdata, ignore_size_change):
 
             # Determine the community/policy name to use in the export
             communities = get_host_communities(i, id2ip)
-            if communities:
-                # Host is part of a community. Add the first community found
-                # NOTE: use only first community per host (FOR NOW!)
-                # TODO: log if multiple communities per host?
-                com = next(iter(communities))
+
+            # Host is part of a single community
+            if len(communities) == 1:
+                com = communities.pop()
                 host_net_policy = com.community_global or com.community
-            elif pol := policies.get_isolated_policy():
-                # Host is not part of a community, and its policy includes the isolated attribute
-                # and it has a community template pattern
-                if pol.policy.community_template_pattern:
-                    host_net_policy = f"{pol.policy.community_template_pattern}_isolated"
-                else:
+            # Host is part of multiple communities - log and isolate if network supports it
+            elif len(communities) > 1:
+                pol = policies.get_isolated_policy()
+                if pol and (isolated_name := pol.policy.get_isolated_name()):
+                    host_net_policy = isolated_name
                     logger.warning(
-                        "No community template pattern for isolated policy %s on host %s",
-                        pol.policy.name,
+                        "Multiple communities found for host %s: %s. Isolating host to policy %s.",
                         i["name"],
+                        ", ".join(com.community for com in communities),
+                        pol.policy.name,
                     )
+                else:
+                    logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
+            # Host is not part of a community - isolate if network supports it
+            elif pol := policies.get_isolated_policy():
+                host_net_policy = pol.policy.get_isolated_name()
 
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
