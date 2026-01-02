@@ -370,14 +370,14 @@ def create_ldif(ldifdata, ignore_size_change):
                             ", ".join(com.community for com in communities),
                         )
                         break
+                else:
+                    logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
+            # Host is part of a single community
             elif len(communities) == 1:
-                # Host is part of a community. Add the first community found
-                # NOTE: use only first community per host (FOR NOW!)
-                # TODO: log if multiple communities per host?
                 com = communities.pop()
                 host_net_policy = com.community_global or com.community
+            # Host is not part of a community, and its policy includes the isolated attribute
             elif pol := policies.get_isolated_policy():
-                # Host is not part of a community, and its policy includes the isolated attribute
                 host_net_policy = pol.policy.get_isolated_name()
 
             if host_net_policy:
