@@ -170,8 +170,8 @@ def get_host_communities(
         if not ip_obj:
             logger.debug(f"No IP address found for ID {ip_id} on host {host['name']}")
             continue
-        ip = ip_obj["ipaddress"]
         mac = ip_obj["macaddress"]
+        ip = ip_obj["ipaddress"]
 
         # Construct the HostCommunity object
         community = community_obj.get("community")
