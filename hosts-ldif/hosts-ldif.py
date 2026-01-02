@@ -251,7 +251,7 @@ def create_network_to_policy_mapping(
         net_to_policy[network] = NetworkPolicy(
             name=policy["name"],
             description=policy.get("description"),
-            community_template_pattern=policy.get("community_mapping_prefix") or policy.get("community_template_pattern"),
+            community_template_pattern=policy.get("community_template_pattern") or policy.get("community_mapping_prefix"),
             attributes=tuple(attributes),
         )
     return net_to_policy
