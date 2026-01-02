@@ -348,24 +348,24 @@ def create_ldif(ldifdata, ignore_size_change):
             # Determine the community/policy name to use in the export
             communities = get_host_communities(i, id2ip)
 
-            # Hosts with multiple communites (invalid) get isolated regardless of policy attributes
-            if len(communities) > 1:
-                for pol in policies:
-                    if isolated_name := pol.policy.get_isolated_name():
-                        host_net_policy = isolated_name
-                        logger.warning(
-                            "Multiple communities found for host %s: %s. Isolating host to policy %s.",
-                            i["name"],
-                            ", ".join(com.community for com in communities),
-                        )
-                        break
-                else:
-                    logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
             # Host is part of a single community
-            elif len(communities) == 1:
+            if len(communities) == 1:
                 com = communities.pop()
                 host_net_policy = com.community_global or com.community
-            # Host is not part of a community, and its policy includes the isolated attribute
+            # Host is part of multiple communities - log and isolate if network supports it
+            elif len(communities) > 1:
+                pol = policies.get_isolated_policy()
+                if pol and (isolated_name := pol.policy.get_isolated_name()):
+                    host_net_policy = isolated_name
+                    logger.warning(
+                        "Multiple communities found for host %s: %s. Isolating host to policy %s.",
+                        i["name"],
+                        ", ".join(com.community for com in communities),
+                        pol.policy.name,
+                    )
+                else:
+                    logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
+            # Host is not part of a community - isolate if network supports it
             elif pol := policies.get_isolated_policy():
                 host_net_policy = pol.policy.get_isolated_name()
 
