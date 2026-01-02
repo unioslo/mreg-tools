@@ -6,7 +6,7 @@ import pickle
 import os
 import pathlib
 import sys
-from typing import Any, NamedTuple
+from typing import Any, Iterator, NamedTuple
 
 import fasteners
 
@@ -151,7 +151,7 @@ def get_id_to_ip_mapping(hosts: list[dict[str, Any]]) -> IdToIpMappingType:
 class HostCommunity(NamedTuple):
     community: str
     community_global: str | None
-    ip: ipaddress.IPv4Address | ipaddress.IPv6Address
+    ip: str
     mac: str
 
 
@@ -170,25 +170,19 @@ def get_host_communities(
         if not ip_obj:
             logger.debug(f"No IP address found for ID {ip_id} on host {host['name']}")
             continue
+        ip = ip_obj["ipaddress"]
         mac = ip_obj["macaddress"]
-        try:
-            ip_addr = ipaddress.ip_address(ip_obj["ipaddress"])
-        except ValueError:
-            logger.warning(
-                f"Invalid IP address {ip_obj['ipaddress']} on host {host['name']}"
-            )
-            continue
 
         # Construct the HostCommunity object
         community = community_obj.get("community")
         community_name = community.get("name")
         community_global = community.get("global_name")
-        if community_name and ip_addr and mac:
+        if community_name and ip and mac:
             communities.add(
                 HostCommunity(
                     community=community_name,
                     community_global=community_global,
-                    ip=ip_addr,
+                    ip=ip,
                     mac=mac,
                 )
             )
@@ -226,12 +220,8 @@ class HostPolicies:
     def __init__(self, policies: set[HostNetworkPolicy]):
         self.policies = policies
 
-    def get_policy_from_ip(self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> HostNetworkPolicy | None:
-        """Get the network policy for the given IP address, if any."""
-        for policy in self.policies:
-            if policy.ip == ip:
-                return policy
-        return None
+    def __iter__(self) -> Iterator[HostNetworkPolicy]:
+        return iter(self.policies)
 
     def get_isolated_policy(self) -> HostNetworkPolicy | None:
         """Get the first isolated policy for the host, if any."""
@@ -360,9 +350,8 @@ def create_ldif(ldifdata, ignore_size_change):
 
             # Hosts with multiple communites (invalid) get isolated regardless of policy attributes
             if len(communities) > 1:
-                for com in communities:
-                    pol = policies.get_policy_from_ip(com.ip)
-                    if pol and (isolated_name := pol.policy.get_isolated_name()):
+                for pol in policies:
+                    if isolated_name := pol.policy.get_isolated_name():
                         host_net_policy = isolated_name
                         logger.warning(
                             "Multiple communities found for host %s: %s. Isolating host to policy %s.",
