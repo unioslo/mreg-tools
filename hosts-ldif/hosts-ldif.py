@@ -6,6 +6,7 @@ import pickle
 import os
 import pathlib
 import sys
+from typing import Any, Iterator, NamedTuple
 
 import fasteners
 
@@ -131,6 +132,175 @@ def create_ip_to_vlan_mapping(hosts, networks):
 
     return ip2vlan
 
+
+IdToIpMappingType = dict[str, dict[str, Any]]
+"""Mapping of IP address ID to the full IP address object."""
+
+
+def get_id_to_ip_mapping(hosts: list[dict[str, Any]]) -> IdToIpMappingType:
+    """Get a mapping of ip address IDs to the full IP address object."""
+    id2ip: IdToIpMappingType = {}
+    for i in hosts:
+        for ip in i["ipaddresses"]:
+            ip_id = str(ip.get("id", ""))
+            if ip_id and ip_id not in id2ip:
+                id2ip[ip_id] = ip
+    return id2ip
+
+
+class HostCommunity(NamedTuple):
+    community: str
+    community_global: str | None
+    ip: str
+    mac: str
+
+
+def get_host_communities(
+    host: dict[str, Any], ip_mapping: IdToIpMappingType
+) -> set[HostCommunity]:
+    """Get the set of communities a host belongs to.
+
+    Correlates the community object's IP address ID to IP and MAC addresses.
+    """
+    communities: set[HostCommunity] = set()
+    for community_obj in host["communities"]:
+        # Correlate the community's IP address ID to the full IP object
+        ip_id = community_obj.get("ipaddress")
+        ip_obj = ip_mapping.get(str(ip_id))
+        if not ip_obj:
+            logger.debug(f"No IP address found for ID {ip_id} on host {host['name']}")
+            continue
+        mac = ip_obj["macaddress"]
+        ip = ip_obj["ipaddress"]
+
+        # Construct the HostCommunity object
+        community = community_obj.get("community")
+        community_name = community.get("name")
+        community_global = community.get("global_name")
+        if community_name and ip and mac:
+            communities.add(
+                HostCommunity(
+                    community=community_name,
+                    community_global=community_global,
+                    ip=ip,
+                    mac=mac,
+                )
+            )
+
+    return communities
+
+
+
+class NetworkPolicy(NamedTuple):
+    """Network policy with its attributes."""
+
+    name: str
+    description: str | None = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
+    community_template_pattern: str | None = None
+    attributes: tuple[str, ...] = tuple()
+
+    def get_isolated_name(self) -> str | None:
+        """Get the isolated community name for this policy, if applicable."""
+        if self.community_template_pattern:
+            return f"{self.community_template_pattern}_isolated"
+        logger.warning("No community template pattern for policy %s", self.name)
+        return None
+
+class HostNetworkPolicy(NamedTuple):
+    """Active network policy (on a host) for the given IP address."""
+
+    policy: NetworkPolicy
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address
+    mac: str
+    attributes: tuple[str, ...] = tuple()
+
+
+class HostPolicies:
+    """Set of network policies applied to a host."""
+    def __init__(self, policies: set[HostNetworkPolicy]):
+        self.policies = policies
+
+    def get_isolated_policy(self) -> HostNetworkPolicy | None:
+        """Get the first isolated policy for the host, if any."""
+        for policy in self.policies:
+            if "isolated" in policy.attributes:
+                return policy
+        return None
+
+
+NetworkPolicyMappingType = dict[
+    ipaddress.IPv4Network | ipaddress.IPv6Network, NetworkPolicy
+]
+"""Mapping of network to policy name."""
+
+
+def create_network_to_policy_mapping(
+    networks: list[dict[str, Any]],
+) -> NetworkPolicyMappingType:
+    net_to_policy: NetworkPolicyMappingType = {}
+    for n in networks:
+        if (policy := n.get("policy")) is None:
+            continue
+
+        try:
+            network = ipaddress.ip_network(n["network"])
+        except ValueError:
+            logger.warning(f"Invalid network {n['network']}")
+            continue
+
+        # Add all attributes with True values to the set of attributes
+        attributes: set[str] = set()
+        for attr in policy.get(
+            "attributes", []
+        ):  # list of dicts {"name": str, "value": bool}
+            if attr.get("value") is True and (name := attr.get("name")):
+                attributes.add(name)
+
+        net_to_policy[network] = NetworkPolicy(
+            name=policy["name"],
+            description=policy.get("description"),
+            community_template_pattern=policy.get("community_template_pattern") or policy.get("community_mapping_prefix"),
+            attributes=tuple(attributes),
+        )
+    return net_to_policy
+
+
+def get_host_policies(
+    host: dict[str, Any], network2policy: NetworkPolicyMappingType
+) -> HostPolicies:
+    """Get the set of network policies applied to a host."""
+    policies: set[HostNetworkPolicy] = set()
+    for ipaddr in host["ipaddresses"]:
+        try:
+            ip = ipaddress.ip_address(ipaddr["ipaddress"])
+        except ValueError:
+            logger.warning(
+                f"Invalid IP address {ipaddr['ipaddress']} on host {host['name']}"
+            )
+            continue
+        
+        mac = ipaddr.get("macaddress")
+        if not mac:
+            logger.debug(
+                f"No MAC address for IP {ip} on host {host['name']}. Not including in policies."
+            )
+            continue
+        
+        # Correlate the IP address to its network policy
+        for network, policy in network2policy.items():
+            if ip in network:
+                policies.add(
+                    HostNetworkPolicy(
+                        policy=policy,
+                        ip=ip,
+                        mac=mac,
+                        attributes=tuple(policy.attributes),
+                    )
+                )
+
+    return HostPolicies(policies)
+
+
 @common.utils.timing
 def create_ldif(ldifdata, ignore_size_change):
 
@@ -146,6 +316,8 @@ def create_ldif(ldifdata, ignore_size_change):
 
     hosts = ldifdata.hosts
     ip2vlan = create_ip_to_vlan_mapping(hosts, ldifdata.networks)
+    id2ip = get_id_to_ip_mapping(hosts)
+    net2policy = create_network_to_policy_mapping(ldifdata.networks)
 
     f = io.StringIO()
     dn = cfg['ldif']['dn']
@@ -164,6 +336,43 @@ def create_ldif(ldifdata, ignore_size_change):
                 if 'uioVlanID' not in entry:
                     entry['uioVlanID'] = set()
                 entry['uioVlanID'].add(ip2vlan[ipaddr])
+
+        # Add the host's network policy (using the community's global name, else <template_pattern>_isolated)
+        policies = get_host_policies(i, net2policy)
+        if policies:
+            host_net_policy: str | None = None
+
+            # Determine the community/policy name to use in the export
+            communities = get_host_communities(i, id2ip)
+
+            # Host is part of a single community
+            if len(communities) == 1:
+                com = communities.pop()
+                host_net_policy = com.community_global or com.community
+            # Host is part of multiple communities - log and isolate if network supports it
+            elif len(communities) > 1:
+                pol = policies.get_isolated_policy()
+                if pol and (isolated_name := pol.policy.get_isolated_name()):
+                    host_net_policy = isolated_name
+                    logger.warning(
+                        "Multiple communities found for host %s: %s. Isolating host to policy %s.",
+                        i["name"],
+                        ", ".join(com.community for com in communities),
+                        pol.policy.name,
+                    )
+                else:
+                    logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
+            # Host is not part of a community - isolate if network supports it
+            elif pol := policies.get_isolated_policy():
+                host_net_policy = pol.policy.get_isolated_name()
+
+            if host_net_policy:
+                entry["uioHostNetworkPolicy"] = host_net_policy
+            else:
+                logger.debug(
+                    "No applicable network policy found for host %s", i["name"]
+                )
+
         _write(entry)
         for cinfo in i["cnames"]:
             _write(_base_entry(cinfo["name"]))
