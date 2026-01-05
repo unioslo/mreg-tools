@@ -241,7 +241,8 @@ def create_network_to_policy_mapping(
 ) -> NetworkPolicyMappingType:
     net_to_policy: NetworkPolicyMappingType = {}
     for n in networks:
-        if (policy := n.get("policy")) is None:
+        policy = n.get("network_policy")
+        if policy is None:
             continue
 
         try:
@@ -255,8 +256,10 @@ def create_network_to_policy_mapping(
         for attr in policy.get(
             "attributes", []
         ):  # list of dicts {"name": str, "value": bool}
-            if attr.get("value") is True and (name := attr.get("name")):
-                attributes.add(name)
+            attr_val = attr.get("value")
+            attr_name = attr.get("name")
+            if attr_val is True and attr_name:
+                attributes.add(attr_name)
 
         net_to_policy[network] = NetworkPolicy(
             name=policy["name"],
@@ -354,19 +357,23 @@ def create_ldif(ldifdata, ignore_size_change):
             # Host is part of multiple communities - log and isolate if network supports it
             elif len(communities) > 1:
                 pol = policies.get_isolated_policy()
-                if pol and (isolated_name := pol.policy.get_isolated_name()):
-                    host_net_policy = isolated_name
-                    logger.warning(
-                        "Multiple communities found for host %s: %s. Isolating host to policy %s.",
-                        i["name"],
-                        ", ".join(com.community for com in communities),
-                        pol.policy.name,
-                    )
+                if pol is not None:
+                    isolated_name = pol.policy.get_isolated_name()
+                    if isolated_name:
+                        host_net_policy = isolated_name
+                        logger.warning(
+                            "Multiple communities found for host %s: %s. Isolating host to policy %s.",
+                            i["name"],
+                            ", ".join(com.community for com in communities),
+                            pol.policy.name,
+                        )
                 else:
                     logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
             # Host is not part of a community - isolate if network supports it
-            elif pol := policies.get_isolated_policy():
-                host_net_policy = pol.policy.get_isolated_name()
+            elif policies.get_isolated_policy():
+                pol = policies.get_isolated_policy()
+                if pol is not None:
+                    host_net_policy = pol.policy.get_isolated_name()
 
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
