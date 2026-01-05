@@ -75,6 +75,7 @@ class Connection:
         headers = {'content-type': 'application/json'}
         url = requests.compat.urljoin(self.url, path)
         jsondata = json.dumps(data)
+        self.logger.info("%s %s", type.upper(), url)
         result = getattr(self._session, type)(url, data=jsondata, headers=headers)
 
         if first and result.status_code == 401:

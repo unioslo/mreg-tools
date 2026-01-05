@@ -53,16 +53,18 @@ class LdifData:
             with open(filename, 'wb') as f:
                 pickle.dump(objects, f)
         else:
+            if not os.path.isfile(filename):
+                error(f"No saved data file {filename} to use")
             with open(filename, 'rb') as f:
                 objects = pickle.load(f)
         return objects
 
     @common.utils.timing
-    def get_entries(self, force=True):
+    def get_entries(self, force=True, use_saved_data=False):
         for name, endpoint in self.sources.items():
             url = self._url(endpoint)
             _updated = getattr(self, f"_updated_{name}") or force
-            objects = self._get_entries(url, name, update=_updated)
+            objects = self._get_entries(url, name, update=_updated and not use_saved_data)
             setattr(self, f"{name}", objects)
 
     @property
@@ -395,8 +397,8 @@ def hosts_ldif(args):
     if lock.acquire(blocking=False):
         ldifdata = LdifData(conn=conn, sources=SOURCES)
 
-        if ldifdata.updated or args.force_check:
-            ldifdata.get_entries(force=args.force_check)
+        if ldifdata.updated or args.force_check or args.use_saved_data:
+            ldifdata.get_entries(force=args.force_check, use_saved_data=args.use_saved_data)
             create_ldif(ldifdata, args.ignore_size_change)
             if 'postcommand' in cfg['default']:
                 common.utils.run_postcommand()
@@ -419,6 +421,9 @@ def main():
     parser.add_argument('--ignore-size-change',
                         action='store_true',
                         help='ignore size changes')
+    parser.add_argument('--use-saved-data',
+                        action='store_true',
+                        help='force use saved data from previous runs. --force-check')
     args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
