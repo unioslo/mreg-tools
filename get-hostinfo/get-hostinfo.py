@@ -25,8 +25,14 @@ def create_hosts(host_data):
     hosts = io.StringIO()
 
     for host in host_data:
+        # Handle new/old contact fields. 
+        # We don't know which MREG server version we are running against.
+        if contacts := host.get("contacts"):
+            emails = " ".join(c.get("email", "") for c in contacts)
+        else:
+            emails = host.get("contact") or ""
         # TODO: Host comment could be usefull, but will need escaping
-        hosts.write("{};{}\n".format(host['name'], host['contact']))
+        hosts.write("{};{}\n".format(host['name'], emails))
 
     write_file("hosts.csv", hosts)
 
