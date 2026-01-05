@@ -6,7 +6,7 @@ import pickle
 import os
 import pathlib
 import sys
-from typing import Any, Iterator, NamedTuple
+from typing import Any, NamedTuple, Optional, Union
 
 import fasteners
 
@@ -152,7 +152,7 @@ def get_id_to_ip_mapping(hosts: list[dict[str, Any]]) -> IdToIpMappingType:
 
 class HostCommunity(NamedTuple):
     community: str
-    community_global: str | None
+    community_global: Optional[str]
     ip: str
     mac: str
 
@@ -197,11 +197,11 @@ class NetworkPolicy(NamedTuple):
     """Network policy with its attributes."""
 
     name: str
-    description: str | None = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
-    community_template_pattern: str | None = None
+    description: Optional[str] = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
+    community_template_pattern: Optional[str] = None
     attributes: tuple[str, ...] = tuple()
 
-    def get_isolated_name(self) -> str | None:
+    def get_isolated_name(self) -> Optional[str]:
         """Get the isolated community name for this policy, if applicable."""
         if self.community_template_pattern:
             return f"{self.community_template_pattern}_isolated"
@@ -212,7 +212,7 @@ class HostNetworkPolicy(NamedTuple):
     """Active network policy (on a host) for the given IP address."""
 
     policy: NetworkPolicy
-    ip: ipaddress.IPv4Address | ipaddress.IPv6Address
+    ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
     mac: str
     attributes: tuple[str, ...] = tuple()
 
@@ -222,7 +222,7 @@ class HostPolicies:
     def __init__(self, policies: set[HostNetworkPolicy]):
         self.policies = policies
 
-    def get_isolated_policy(self) -> HostNetworkPolicy | None:
+    def get_isolated_policy(self) -> Optional[HostNetworkPolicy]:
         """Get the first isolated policy for the host, if any."""
         for policy in self.policies:
             if "isolated" in policy.attributes:
@@ -231,7 +231,7 @@ class HostPolicies:
 
 
 NetworkPolicyMappingType = dict[
-    ipaddress.IPv4Network | ipaddress.IPv6Network, NetworkPolicy
+    Union[ipaddress.IPv4Network, ipaddress.IPv6Network], NetworkPolicy
 ]
 """Mapping of network to policy name."""
 
@@ -342,7 +342,7 @@ def create_ldif(ldifdata, ignore_size_change):
         # Add the host's network policy (using the community's global name, else <template_pattern>_isolated)
         policies = get_host_policies(i, net2policy)
         if policies:
-            host_net_policy: str | None = None
+            host_net_policy: Optional[str] = None
 
             # Determine the community/policy name to use in the export
             communities = get_host_communities(i, id2ip)
