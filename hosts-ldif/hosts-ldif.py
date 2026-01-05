@@ -241,7 +241,7 @@ def create_network_to_policy_mapping(
 ) -> NetworkPolicyMappingType:
     net_to_policy: NetworkPolicyMappingType = {}
     for n in networks:
-        policy = n.get("network_policy")
+        policy = n.get("policy")
         if policy is None:
             continue
 
