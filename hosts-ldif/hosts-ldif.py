@@ -53,6 +53,8 @@ class LdifData:
             with open(filename, 'wb') as f:
                 pickle.dump(objects, f)
         else:
+            if not os.path.isfile(filename):
+                error(f"No saved data file {filename} to use")
             with open(filename, 'rb') as f:
                 objects = pickle.load(f)
         return objects
