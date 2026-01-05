@@ -337,7 +337,7 @@ def create_ldif(ldifdata, ignore_size_change):
                     entry['uioVlanID'] = set()
                 entry['uioVlanID'].add(ip2vlan[ipaddr])
 
-        # Add the host's network policy (using the community's global name, else <policy>_isolated)
+        # Add the host's network policy (using the community's global name, else <template_pattern>_isolated)
         policies = get_host_policies(i, net2policy)
         if policies:
             host_net_policy: str | None = None
