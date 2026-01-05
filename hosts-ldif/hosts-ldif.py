@@ -6,7 +6,7 @@ import pickle
 import os
 import pathlib
 import sys
-from typing import Any, NamedTuple, Optional, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import fasteners
 
@@ -135,11 +135,11 @@ def create_ip_to_vlan_mapping(hosts, networks):
     return ip2vlan
 
 
-IdToIpMappingType = dict[str, dict[str, Any]]
+IdToIpMappingType = Dict[str, Dict[str, Any]]
 """Mapping of IP address ID to the full IP address object."""
 
 
-def get_id_to_ip_mapping(hosts: list[dict[str, Any]]) -> IdToIpMappingType:
+def get_id_to_ip_mapping(hosts: List[Dict[str, Any]]) -> IdToIpMappingType:
     """Get a mapping of ip address IDs to the full IP address object."""
     id2ip: IdToIpMappingType = {}
     for i in hosts:
@@ -158,13 +158,13 @@ class HostCommunity(NamedTuple):
 
 
 def get_host_communities(
-    host: dict[str, Any], ip_mapping: IdToIpMappingType
-) -> set[HostCommunity]:
+    host: Dict[str, Any], ip_mapping: IdToIpMappingType
+) -> Set[HostCommunity]:
     """Get the set of communities a host belongs to.
 
     Correlates the community object's IP address ID to IP and MAC addresses.
     """
-    communities: set[HostCommunity] = set()
+    communities: Set[HostCommunity] = set()
     for community_obj in host["communities"]:
         # Correlate the community's IP address ID to the full IP object
         ip_id = community_obj.get("ipaddress")
@@ -199,7 +199,7 @@ class NetworkPolicy(NamedTuple):
     name: str
     description: Optional[str] = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
     community_template_pattern: Optional[str] = None
-    attributes: tuple[str, ...] = tuple()
+    attributes: Tuple[str, ...] = tuple()
 
     def get_isolated_name(self) -> Optional[str]:
         """Get the isolated community name for this policy, if applicable."""
@@ -214,12 +214,12 @@ class HostNetworkPolicy(NamedTuple):
     policy: NetworkPolicy
     ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
     mac: str
-    attributes: tuple[str, ...] = tuple()
+    attributes: Tuple[str, ...] = tuple()
 
 
 class HostPolicies:
     """Set of network policies applied to a host."""
-    def __init__(self, policies: set[HostNetworkPolicy]):
+    def __init__(self, policies: Set[HostNetworkPolicy]):
         self.policies = policies
 
     def get_isolated_policy(self) -> Optional[HostNetworkPolicy]:
@@ -230,14 +230,14 @@ class HostPolicies:
         return None
 
 
-NetworkPolicyMappingType = dict[
+NetworkPolicyMappingType = Dict[
     Union[ipaddress.IPv4Network, ipaddress.IPv6Network], NetworkPolicy
 ]
 """Mapping of network to policy name."""
 
 
 def create_network_to_policy_mapping(
-    networks: list[dict[str, Any]],
+    networks: List[Dict[str, Any]],
 ) -> NetworkPolicyMappingType:
     net_to_policy: NetworkPolicyMappingType = {}
     for n in networks:
@@ -252,7 +252,7 @@ def create_network_to_policy_mapping(
             continue
 
         # Add all attributes with True values to the set of attributes
-        attributes: set[str] = set()
+        attributes: Set[str] = set()
         for attr in policy.get(
             "attributes", []
         ):  # list of dicts {"name": str, "value": bool}
@@ -271,10 +271,10 @@ def create_network_to_policy_mapping(
 
 
 def get_host_policies(
-    host: dict[str, Any], network2policy: NetworkPolicyMappingType
+    host: Dict[str, Any], network2policy: NetworkPolicyMappingType
 ) -> HostPolicies:
     """Get the set of network policies applied to a host."""
-    policies: set[HostNetworkPolicy] = set()
+    policies: Set[HostNetworkPolicy] = set()
     for ipaddr in host["ipaddresses"]:
         try:
             ip = ipaddress.ip_address(ipaddr["ipaddress"])
