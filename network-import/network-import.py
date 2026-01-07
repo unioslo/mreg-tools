@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import configparser
 import ipaddress
@@ -8,15 +10,13 @@ import sys
 from collections import defaultdict
 from operator import itemgetter
 
-from intervaltree import IntervalTree
-
 import requests
+from intervaltree import IntervalTree
 
 parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
 import common.connection
 import common.utils
-
 from common.utils import error
 
 basepath = "/api/v1/networks/"
@@ -36,28 +36,30 @@ def networksort(networks):
 
 
 def read_tags():
-    if 'tagsfile' in cfg['default']:
-        filename = cfg['default']['tagsfile']
+    if "tagsfile" in cfg["default"]:
+        filename = cfg["default"]["tagsfile"]
     else:
         return
-    with open(filename, 'r') as tagfile:
-        flag_re = re.compile(r"""^
+    with open(filename) as tagfile:
+        flag_re = re.compile(
+            r"""^
                              ((?P<location>[a-zA-Z0-9]+)+\s+:\s+Plassering)
                              |(?P<category>[a-zA-Z0-9]+)
-                             """, re.X)
+                             """,
+            re.X,
+        )
         for line_number, line in enumerate(tagfile, 1):
             line = line.strip()
             if line.startswith("#") or len(line) == 0:
                 continue
 
             res = flag_re.match(line)
-            if res.group('location'):
-                location_tags.add(res.group('location'))
-            elif res.group('category'):
-                category_tags.add(res.group('category'))
+            if res.group("location"):
+                location_tags.add(res.group("location"))
+            elif res.group("category"):
+                category_tags.add(res.group("category"))
             else:
-                error('In {}, wrong format on line: {} - {}'.format(
-                    filename, line_number, line))
+                error(f"In {filename}, wrong format on line: {line_number} - {line}")
 
 
 # From python 3.7 Lib/ipaddress.py.
@@ -66,11 +68,11 @@ def _is_subnet_of(a, b):
         # Always false if one is v4 and the other is v6.
         if a._version != b._version:
             raise TypeError(f"{a} and {b} are not of the same version")
-        return (b.network_address <= a.network_address and
-                b.broadcast_address >= a.broadcast_address)
+        return (
+            b.network_address <= a.network_address and b.broadcast_address >= a.broadcast_address
+        )
     except AttributeError:
-        raise TypeError(f"Unable to test subnet containment "
-                        f"between {a} and {b}")
+        raise TypeError(f"Unable to test subnet containment between {a} and {b}")
 
 
 def subnet_of(a, b):
@@ -81,6 +83,7 @@ def subnet_of(a, b):
 def supernet_of(a, b):
     """Return True if this network is a supernet of other."""
     return _is_subnet_of(b, a)
+
 
 # end backport from Python 3.7 ipaddress
 
@@ -99,14 +102,18 @@ def overlap_check(network, tree, points):
         # searching, thus point search failes for a broadcast address. Also one
         # can not add a interval with begin == end, so keep track of one-host
         # networks in a seperate "points" set.
-    elif network.version == 4 and network.prefixlen == 32 or \
-         network.version == 6 and network.prefixlen == 128:
+    elif (
+        network.version == 4
+        and network.prefixlen == 32
+        or network.version == 6
+        and network.prefixlen == 128
+    ):
         if begin in points:
             error(f"Network {network} already in file")
         elif tree.overlaps(begin):
             error(f"Network {network} overlaps {tree[begin].pop().data}")
-        elif tree.overlaps(begin-1):
-            error(f"Network {network} overlaps {tree[begin-1].pop().data}")
+        elif tree.overlaps(begin - 1):
+            error(f"Network {network} overlaps {tree[begin - 1].pop().data}")
         else:
             points.add(begin)
     else:
@@ -143,12 +150,12 @@ def check_removable(oldnet, newnets=[]):
     for ptr in ptrs:
         host = conn.get_list(f"/api/v1/hosts/?ptr_overrides__ipaddress={ptr}")
         assert len(host) == 1
-        problem_hosts[host[0]['name']] = host[0]
+        problem_hosts[host[0]["name"]] = host[0]
 
     for ip in ips:
         hosts = conn.get_list(f"/api/v1/hosts/?ipaddresses__ipaddress={ip}")
         for host in hosts:
-            problem_hosts[host['name']] = host
+            problem_hosts[host["name"]] = host
 
     not_delete = defaultdict(list)
 
@@ -160,13 +167,13 @@ def check_removable(oldnet, newnets=[]):
         # - All ptr overrides in oldnet, and none in newnet.
         # - Not used as a target for naptr, srv or txt.
 
-        host_ips = set(map(itemgetter('ipaddress'), host['ipaddresses']))
-        host_ptrs = set(map(itemgetter('ipaddress'), host['ptr_overrides']))
+        host_ips = set(map(itemgetter("ipaddress"), host["ipaddresses"]))
+        host_ptrs = set(map(itemgetter("ipaddress"), host["ptr_overrides"]))
 
         # The host is used outside the network, so only remove ip/ptr
         if host_ips - ips or host_ptrs - ptrs:
             for info in host["ipaddresses"]:
-                if info['ipaddress'] in ips:
+                if info["ipaddress"] in ips:
                     delete_ips[hostname].append((info["id"], info["ipaddress"]))
             for info in host["ptr_overrides"]:
                 ptr_ip = info["ipaddress"]
@@ -174,21 +181,25 @@ def check_removable(oldnet, newnets=[]):
                     delete_ptrs[hostname].append((info["id"], ptr_ip))
             continue
 
-        for i in ('cnames', 'mxs',):
+        for i in (
+            "cnames",
+            "mxs",
+        ):
             if len(host[i]):
                 not_delete[hostname].append(i)
 
-        if len(host['txts']):
-            if len(host['txts']) == 1:
+        if len(host["txts"]):
+            if len(host["txts"]) == 1:
                 # Ignore the default spf set on most hosts.
-                if host['txts'][0]['txt'] != 'v=spf1 -all':
-                    not_delete[hostname].append('txts')
+                if host["txts"][0]["txt"] != "v=spf1 -all":
+                    not_delete[hostname].append("txts")
             else:
-                not_delete[hostname].append('txts')
+                not_delete[hostname].append("txts")
 
-        for reason, url in (('naptrs', f"/api/v1/naptrs/?host={host['id']}"),
-                            ('srvs', f"/api/v1/srvs/?host={host['id']}"),
-                            ):
+        for reason, url in (
+            ("naptrs", f"/api/v1/naptrs/?host={host['id']}"),
+            ("srvs", f"/api/v1/srvs/?host={host['id']}"),
+        ):
             ret = conn.get_list(url)
             if len(ret):
                 not_delete[hostname].append(reason)
@@ -202,8 +213,7 @@ def check_removable(oldnet, newnets=[]):
     if not_delete:
         message = f"Can not remove {oldnet} due to:"
         for hostname, reasons in not_delete.items():
-            message += "\n\thost {}, reason(s): {}\n".format(hostname,
-                                                           ", ".join(reasons))
+            message += "\n\thost {}, reason(s): {}\n".format(hostname, ", ".join(reasons))
         unremoveable_networks.append(message)
 
 
@@ -228,7 +238,6 @@ def shrink_networks(shrink, import_data, args):
 
 
 def read_networks(filename):
-
     def _error(message):
         error(f"{filename} line {line_number}: {message}")
 
@@ -236,50 +245,53 @@ def read_networks(filename):
     points = set()
 
     # Read in new network structure from file
-    network_re = re.compile(r"""^
+    network_re = re.compile(
+        r"""^
                             (?P<network>[\da-fA-F\.:]+/\d+) \s+
                             (novlan|vlan(?P<vlan>\d+)) \s+
                             (:(?P<tags>.*):\|)?                 # optional tags
                             (?P<description>.*)
-                            """, re.X)
-    with open(filename, 'r', encoding="latin-1") as f:
+                            """,
+        re.X,
+    )
+    with open(filename, encoding="latin-1") as f:
         for line_number, line in enumerate(f, 1):
             line = line.strip()
             if line.startswith("#"):
                 continue
             res = network_re.match(line)
             if res:
-                network_str = res.group('network').lower()
+                network_str = res.group("network").lower()
                 try:
                     network = ipaddress.ip_network(network_str)
                     network_str = str(network)
                 except ValueError as e:
                     _error(f"Network is invalid: {e}")
                 overlap_check(network, tree, points)
-                vlan = res.group('vlan')
+                vlan = res.group("vlan")
                 if vlan:
                     vlan = int(vlan)
-                desc = res.group('description').strip()
+                desc = res.group("description").strip()
                 if not desc:
                     _error("Missing description.")
-                category = location = ''
-                tags = res.group('tags')
+                category = location = ""
+                tags = res.group("tags")
                 if tags:
-                    for tag in tags.split(':'):
+                    for tag in tags.split(":"):
                         if tag in location_tags:
                             location = tag
                         elif tag in category_tags:
                             category += f" {tag}"
                         else:
                             logging.warning(
-                                "{}: Invalid tag {}. Check valid in tags file.".format(
-                                    line_number, tag))
+                                f"{line_number}: Invalid tag {tag}. Check valid in tags file."
+                            )
                 data = {
-                    'network': network_str,
-                    'description': desc,
-                    'vlan': vlan,
-                    'category': category.strip(),
-                    'location': location
+                    "network": network_str,
+                    "description": desc,
+                    "vlan": vlan,
+                    "category": category.strip(),
+                    "location": location,
                 }
                 if network.version == 4:
                     import_v4[network_str] = data
@@ -288,20 +300,20 @@ def read_networks(filename):
             else:
                 _error(f"Could not match string: {line}")
 
-def empty_network(network):
-        used_count = conn.get(f"{basepath}{network}/used_count").json()
-        ptr_list = conn.get(f"{basepath}{network}/ptroverride_list").json()
-        if used_count == 0 and len(ptr_list) == 0:
-            return True
-        used_list = conn.get(f"{basepath}{network}/used_list").json()
-        if used_list:
-            return False
 
+def empty_network(network):
+    used_count = conn.get(f"{basepath}{network}/used_count").json()
+    ptr_list = conn.get(f"{basepath}{network}/ptroverride_list").json()
+    if used_count == 0 and len(ptr_list) == 0:
         return True
+    used_list = conn.get(f"{basepath}{network}/used_list").json()
+    if used_list:
+        return False
+
+    return True
 
 
 def compare_with_mreg(ipversion, import_data, mreg_data):
-
     networks_delete = mreg_data.keys() - import_data.keys()
     networks_post = import_data.keys() - mreg_data.keys()
     networks_keep = import_data.keys() & mreg_data.keys()
@@ -334,7 +346,7 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
         check_removable(network)
 
     if unremoveable_networks:
-        error(''.join(unremoveable_networks))
+        error("".join(unremoveable_networks))
 
     # Check if networks marked for creation have any overlap with existing networks
     # We also check this serverside, but just in case...
@@ -344,13 +356,14 @@ def compare_with_mreg(ipversion, import_data, mreg_data):
             if network_object.overlaps(ipaddress.ip_network(network_existing)):
                 error(
                     f"Overlap found between new network {network_new} "
-                    f"and existing network {network_existing}")
+                    f"and existing network {network_existing}"
+                )
 
     # Check which existing networks need to be patched
     for network in networks_keep:
         current_data = mreg_data[network]
         new_data = import_data[network]
-        for i in ('description', 'vlan', 'category', 'location'):
+        for i in ("description", "vlan", "category", "location"):
             if new_data[i] != current_data[i]:
                 networks_patch[network][i] = new_data[i]
 
@@ -366,9 +379,9 @@ def grow_networks(grow, import_data, dryrun):
         replace = oldnets.pop()
         for oldnet in oldnets:
             if not dryrun:
-                dummyrange = '255.255.255.0/32'
+                dummyrange = "255.255.255.0/32"
                 path = f"{basepath}{oldnet}"
-                conn.patch(path, {'network': dummyrange})
+                conn.patch(path, {"network": dummyrange})
                 path = f"{basepath}{dummyrange}"
                 conn.delete(path)
             logging.info(f"REMOVED {oldnet} to make room for {newnet}")
@@ -382,8 +395,10 @@ def check_changes_size(ipversion, num_current, args, *changes):
     if num_current and changed != 0:
         diffsize = (changed / num_current) * 100
         if diffsize > args.max_size_change and not args.force_size_change:
-            error(f"The import will change {diffsize:.0f}% of the ipv{ipversion} networks. "
-                  f"Limit is {args.max_size_change}%. Requires force.")
+            error(
+                f"The import will change {diffsize:.0f}% of the ipv{ipversion} networks. "
+                f"Limit is {args.max_size_change}%. Requires force."
+            )
         else:
             logging.info(f"Changing {diffsize:.0f}% of the ipv{ipversion} networks.")
 
@@ -438,10 +453,10 @@ def sync_with_mreg(args):
     mreg_data = defaultdict(dict)
     path = requests.compat.urljoin(basepath, "?page_size=1000")
     for i in conn.get_list(path):
-        network = ipaddress.ip_network(i['network'])
-        if i['category'].startswith('mreg-managed:'):
+        network = ipaddress.ip_network(i["network"])
+        if i["category"].startswith("mreg-managed:"):
             continue
-        mreg_data[network.version][i['network']] = i
+        mreg_data[network.version][i["network"]] = i
     for ipversion, import_data in ((4, import_v4), (6, import_v6)):
         changes = compare_with_mreg(ipversion, import_data, mreg_data[ipversion])
         if any(len(i) for i in changes):
@@ -455,21 +470,22 @@ def sync_with_mreg(args):
 def main():
     global cfg, conn, logger
     parser = argparse.ArgumentParser()
-    parser.add_argument("networkfile",
-                        help="File with all networks")
-    parser.add_argument('--config',
-                        default='network-import.conf',
-                        help='path to config file (default: network-import.conf)')
-    parser.add_argument("--dryrun",
-                        help="Dryrun",
-                        action="store_true")
-    parser.add_argument("--force-size-change",
-                        help="Allow more than MAX_SIZE_CHANGE changes",
-                        action="store_true")
-    parser.add_argument("--max-size-change",
-                        help="Max changes (change and delete) in percent (default: %(default)s)",
-                        type=int,
-                        default=20)
+    parser.add_argument("networkfile", help="File with all networks")
+    parser.add_argument(
+        "--config",
+        default="network-import.conf",
+        help="path to config file (default: network-import.conf)",
+    )
+    parser.add_argument("--dryrun", help="Dryrun", action="store_true")
+    parser.add_argument(
+        "--force-size-change", help="Allow more than MAX_SIZE_CHANGE changes", action="store_true"
+    )
+    parser.add_argument(
+        "--max-size-change",
+        help="Max changes (change and delete) in percent (default: %(default)s)",
+        type=int,
+        default=20,
+    )
     args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
@@ -477,7 +493,7 @@ def main():
 
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
-    conn = common.connection.Connection(cfg['mreg'], logger=logger)
+    conn = common.connection.Connection(cfg["mreg"], logger=logger)
     sync_with_mreg(args)
 
 

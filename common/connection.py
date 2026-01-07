@@ -1,8 +1,12 @@
-import logging
+from __future__ import annotations
+
 import json
+import logging
 import os
-import requests
 import sys
+from typing import Any
+
+import requests
 
 
 def error(message, logger=None, code=os.EX_UNAVAILABLE):
@@ -13,13 +17,16 @@ def error(message, logger=None, code=os.EX_UNAVAILABLE):
 
 
 class Connection:
-
     def __init__(self, config, logger=None):
         if logger is None:
             self.logger = logging.getLogger(__name__)
         else:
             self.logger = logger
-        for i in ('url', 'username', 'passwordfile',):
+        for i in (
+            "url",
+            "username",
+            "passwordfile",
+        ):
             if i not in config:
                 error(f"Need {i} in config")
             setattr(self, i, config[i])
@@ -30,28 +37,31 @@ class Connection:
         """Uses requests to make a get request."""
         return self._request_wrapper("get", path)
 
-    def get_list(self, path: str) -> requests.Response:
+    def get_list(self, path: str) -> list[Any]:
         """Uses requests to make a get request.
-           Will iterate over paginated results and return result as list."""
-        ret = []
-        while path:
-            result = self.get(path).json()
-            if 'next' in result:
-                path = result['next']
-                ret.extend(result['results'])
+        Will iterate over paginated results and return result as list.
+        """
+        ret: list[Any] = []
+        next_path: str | None = path
+        while next_path:
+            result = self.get(next_path).json()
+            if "next" in result:
+                next_path = result["next"]
+                ret.extend(result["results"])
             else:
-                path = None
+                next_path = None
         return ret
 
     def post(self, path: str, data) -> requests.Response:
         """Uses requests to make a post request. Assumes that all kwargs are
-        data fields"""
-
+        data fields
+        """
         return self._request_wrapper("post", path, data)
 
     def patch(self, path: str, data) -> requests.Response:
         """Uses requests to make a patch request. Assumes that all kwargs are data
-        fields"""
+        fields
+        """
         return self._request_wrapper("patch", path, data)
 
     def delete(self, path: str) -> requests.Response:
@@ -60,19 +70,19 @@ class Connection:
 
     def result_check(self, result, type, url, data=None):
         if not result.ok:
-            message = f"{type} \"{url}\": {result.status_code}: {result.reason}"
+            message = f'{type} "{url}": {result.status_code}: {result.reason}'
             try:
                 body = result.json()
             except ValueError:
                 pass
             else:
-                message += "\n{}".format(json.dumps(body, indent=2))
+                message += f"\n{json.dumps(body, indent=2)}"
                 if data is not None:
-                    message += "\n{}".format(json.dumps(data, indent=2))
+                    message += f"\n{json.dumps(data, indent=2)}"
             error(message, logger=self.logger)
 
     def _request_wrapper(self, type, path, data=None, first=True):
-        headers = {'content-type': 'application/json'}
+        headers = {"content-type": "application/json"}
         url = requests.compat.urljoin(self.url, path)
         jsondata = json.dumps(data)
         self.logger.info("%s %s", type.upper(), url)
@@ -87,7 +97,7 @@ class Connection:
 
     def read_passwordfile(self):
         try:
-            with open(self.passwordfile, 'r') as f:
+            with open(self.passwordfile) as f:
                 password = f.readline().strip()
         except (FileNotFoundError, EOFError) as e:
             error(f"{e}", code=e.errno)
@@ -95,8 +105,8 @@ class Connection:
 
     def update_token(self):
         tokenurl = requests.compat.urljoin(self.url, "/api/token-auth/")
-        data = {'username': self.username, 'password': self.read_passwordfile()}
+        data = {"username": self.username, "password": self.read_passwordfile()}
         result = requests.post(tokenurl, data)
         self.result_check(result, "post", tokenurl)
-        token = result.json()['token']
+        token = result.json()["token"]
         self._session.headers.update({"Authorization": f"Token {token}"})

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import json
 import logging
@@ -7,7 +9,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-
 from functools import wraps
 from time import time
 
@@ -17,11 +18,7 @@ from iso8601 import parse_date
 cfg = None
 logger = None
 # Maximum size change in percent for each line count threshold
-COMPARE_LIMITS_LINES = {50: 50,
-                        100: 20,
-                        1000: 15,
-                        10000: 10,
-                        sys.maxsize: 10}
+COMPARE_LIMITS_LINES = {50: 50, 100: 20, 1000: 15, 10000: 10, sys.maxsize: 10}
 # Absolute minimum file size, in lines
 ABSOLUTE_MIN_SIZE = 10
 
@@ -41,8 +38,8 @@ class TooSmallNewFile(Exception):
 def UmaskNamedTemporaryFile(*args, **kwargs):
     f = tempfile.NamedTemporaryFile(*args, **kwargs)
     oldmask = None
-    if cfg.has_option('default', 'umask'):
-        umask = int(cfg['default']['umask'], 8)
+    if cfg.has_option("default", "umask"):
+        umask = int(cfg["default"]["umask"], 8)
         oldmask = os.umask(umask)
         os.chmod(f.name, 0o666 & ~umask)
     return f, oldmask
@@ -64,19 +61,20 @@ def mkdir(path):
 
 def getLogger():
     global logger
-    if cfg['default']['logdir']:
-        logdir = cfg['default']['logdir']
+    if cfg["default"]["logdir"]:
+        logdir = cfg["default"]["logdir"]
     else:
         error("No logdir defined in config file")
 
     mkdir(logdir)
-    filename = datetime.datetime.now().strftime('%Y-%m-%d.log')
+    filename = datetime.datetime.now().strftime("%Y-%m-%d.log")
     filepath = os.path.join(logdir, filename)
     logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s: %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename=filepath,
-                    level=logging.INFO)
+        format="%(asctime)s %(levelname)-8s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filename=filepath,
+        level=logging.INFO,
+    )
     logger = logging.getLogger(__name__)
     return logger
 
@@ -87,49 +85,54 @@ def timing(f):
         ts = time()
         result = f(*args, **kw)
         te = time()
-        logging.info(f'func:{f.__name__} args:[{args}, {kw}] took: {te-ts:.4} sec')
+        logging.info(f"func:{f.__name__} args:[{args}, {kw}] took: {te - ts:.4} sec")
         return result
+
     return wrap
 
 
 def compare_file_size(oldfile, newfile, newlines):
-    """
-    Compare filesizes with the new and old file, and if difference
+    """Compare filesizes with the new and old file, and if difference
     above values in COMPARE_LIMITS_LINES, raise an exception.
     """
-    encoding = cfg['default'].get('fileencoding', 'utf-8')
-    with open(oldfile, 'r', encoding=encoding) as old:
+    encoding = cfg["default"].get("fileencoding", "utf-8")
+    with open(oldfile, encoding=encoding) as old:
         oldlines = old.readlines()
 
     if newlines == oldlines:
         return
 
     old_count = len(oldlines)
-    diff_limit = cfg['default'].getfloat('max_line_change_percent')
+    diff_limit = cfg["default"].getfloat("max_line_change_percent")
     if diff_limit is None:
         for linecount, limit in COMPARE_LIMITS_LINES.items():
             if old_count < linecount:
                 diff_limit = limit
                 break
 
-    diff_percent = (len(newlines)-old_count)/old_count*100
+    diff_percent = (len(newlines) - old_count) / old_count * 100
     if abs(diff_percent) > diff_limit:
-        raise TooManyLineChanges(newfile,
-                f"New file {newfile} changed too much: {diff_percent:.2f}%, limit {diff_limit}%")
+        raise TooManyLineChanges(
+            newfile,
+            f"New file {newfile} changed too much: {diff_percent:.2f}%, limit {diff_limit}%",
+        )
 
 
 def write_file(filename, f, ignore_size_change=False):
-    dstfile = os.path.join(cfg['default']['destdir'], filename)
-    encoding = cfg['default'].get('fileencoding', 'utf-8')
+    dstfile = os.path.join(cfg["default"]["destdir"], filename)
+    encoding = cfg["default"].get("fileencoding", "utf-8")
 
-    tempf, oldmask = UmaskNamedTemporaryFile(delete=False, mode='w',
-                                             encoding=encoding,
-                                             dir=cfg['default']['workdir'],
-                                             prefix=f'{filename}.')
+    tempf, oldmask = UmaskNamedTemporaryFile(
+        delete=False,
+        mode="w",
+        encoding=encoding,
+        dir=cfg["default"]["workdir"],
+        prefix=f"{filename}.",
+    )
     f.seek(0)
     newlines = f.readlines()
     if len(newlines) < ABSOLUTE_MIN_SIZE:
-        raise TooSmallNewFile(tempf.name, f'new file less than {ABSOLUTE_MIN_SIZE} lines')
+        raise TooSmallNewFile(tempf.name, f"new file less than {ABSOLUTE_MIN_SIZE} lines")
     # Write first to make sure the workdir can hold the new file
     f.seek(0)
     shutil.copyfileobj(f, tempf)
@@ -138,7 +141,7 @@ def write_file(filename, f, ignore_size_change=False):
     if os.path.isfile(dstfile):
         if not ignore_size_change:
             compare_file_size(dstfile, tempf.name, newlines)
-        if cfg['default'].getboolean('keepoldfile', True):
+        if cfg["default"].getboolean("keepoldfile", True):
             oldfile = f"{dstfile}_old"
             if os.path.isfile(oldfile):
                 os.chmod(oldfile, stat.S_IRUSR | stat.S_IWUSR)
@@ -154,7 +157,7 @@ def write_file(filename, f, ignore_size_change=False):
 
 def read_json_file(filename):
     try:
-        with open(filename, 'r') as f:
+        with open(filename) as f:
             return json.load(f)
     except (FileNotFoundError, EOFError):
         logging.warning(f"Could not read data from {filename}")
@@ -163,35 +166,36 @@ def read_json_file(filename):
 
 def write_json_file(filename, info):
     try:
-        with open(filename, 'w') as f:
+        with open(filename, "w") as f:
             return json.dump(info, f)
     except PermissionError:
         error(f"No permission to write to {filename}")
 
 
 @timing
-def updated_entries(conn, url, filename, obj_filter='page_size=1&ordering=-updated_at') -> bool:
+def updated_entries(conn, url, filename, obj_filter="page_size=1&ordering=-updated_at") -> bool:
     """Check if first entry is unchanged"""
-
-    filename = os.path.join(cfg['default']['workdir'], filename)
-    if '?' in url:
-        url += '&'
+    filename = os.path.join(cfg["default"]["workdir"], filename)
+    if "?" in url:
+        url += "&"
     else:
-        url += '?'
+        url += "?"
     url += obj_filter
     new_data = conn.get(url).json()
-    if new_data['count'] == 0:
+    if new_data["count"] == 0:
         error(f"No entries at: {url}")
     old_data = read_json_file(filename)
     if old_data is None:
         write_json_file(filename, new_data)
         return True
 
-    old_updated_at = parse_date(old_data['results'][0]['updated_at'])
-    new_updated_at = parse_date(new_data['results'][0]['updated_at'])
-    if old_data['count'] != new_data['count'] or \
-       old_data['results'][0]['id'] != new_data['results'][0]['id'] or \
-       old_updated_at < new_updated_at:
+    old_updated_at = parse_date(old_data["results"][0]["updated_at"])
+    new_updated_at = parse_date(new_data["results"][0]["updated_at"])
+    if (
+        old_data["count"] != new_data["count"]
+        or old_data["results"][0]["id"] != new_data["results"][0]["id"]
+        or old_updated_at < new_updated_at
+    ):
         write_json_file(filename, new_data)
         return True
     return False
@@ -199,6 +203,6 @@ def updated_entries(conn, url, filename, obj_filter='page_size=1&ordering=-updat
 
 @timing
 def run_postcommand():
-    timeout = cfg['default'].getint('postcommand_timeout', None)
-    command = json.loads(cfg['default']['postcommand'])
+    timeout = cfg["default"].getint("postcommand_timeout", None)
+    command = json.loads(cfg["default"]["postcommand"])
     subprocess.run(command, timeout=timeout)
