@@ -338,9 +338,11 @@ def create_ldif(ldifdata, ignore_size_change):
             entry['uioHostMacAddr'] = sorted(mac)
         for ipaddr in i['ips']:
             if ipaddr in ip2vlan:
-                if 'uioVlanID' not in entry:
-                    entry['uioVlanID'] = set()
-                entry['uioVlanID'].add(ip2vlan[ipaddr])
+                entry['uioVlanID'] = ip2vlan[ipaddr]
+                if len(i["ips"]) > 1:
+                    logger.warning("Multiple IPs for host %s, using VLAN %s from IP %s",
+                                   i["name"], ip2vlan[ipaddr], ipaddr)
+                break
 
         # Add the host's network policy (using the community's global name, else <template_pattern>_isolated)
         policies = get_host_policies(i, net2policy)
