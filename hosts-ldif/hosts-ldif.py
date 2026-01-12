@@ -6,7 +6,7 @@ import pickle
 import os
 import pathlib
 import sys
-from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import Any, Dict, Generator, List, NamedTuple, Optional, Set, Tuple, Union
 
 import fasteners
 
@@ -194,10 +194,32 @@ def get_host_communities(
 
 
 class NetworkPolicy(NamedTuple):
-    """Network policy with its attributes."""
+    """Network policy with its attributes.
+    
+    This data structure maps the API resource for a network policy.
+    """
 
     name: str
     description: Optional[str] = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
+    community_template_pattern: Optional[str] = None
+    attributes: Tuple[str, ...] = tuple()
+
+
+class HostNetworkPolicy(NamedTuple):
+    """Active network policy (on a host) for the given IP address.
+    
+    This data structure correlates a network policy to a specific IP and MAC
+    address on a host.
+    """
+
+    # NOTE: this data structure corrlates
+    # Extra fields that we need for host correlation:
+    ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+    mac: str
+
+    # Fields from the original API resource:
+    name: str
+    description: Optional[str] = None
     community_template_pattern: Optional[str] = None
     attributes: Tuple[str, ...] = tuple()
 
@@ -208,25 +230,25 @@ class NetworkPolicy(NamedTuple):
         logger.warning("No community template pattern for policy %s", self.name)
         return None
 
-class HostNetworkPolicy(NamedTuple):
-    """Active network policy (on a host) for the given IP address."""
-
-    policy: NetworkPolicy
-    ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
-    mac: str
-    attributes: Tuple[str, ...] = tuple()
-
 
 class HostPolicies:
     """Set of network policies applied to a host."""
     def __init__(self, policies: Set[HostNetworkPolicy]):
         self.policies = policies
 
-    def get_isolated_policy(self) -> Optional[HostNetworkPolicy]:
-        """Get the first isolated policy for the host, if any."""
+    def isolated_policies(self) -> Generator[HostNetworkPolicy, None, None]:
+        """Generator of network policies that support isolation."""
         for policy in self.policies:
             if "isolated" in policy.attributes:
-                return policy
+                yield policy
+
+    def get_isolated_policy_name(self) -> Optional[str]:
+        """Get the first valid isolated policy name for the host, if any."""
+        for policy in self.isolated_policies():
+            name = policy.get_isolated_name()
+            if name is not None:
+                return name
+            logger.warning("No community template pattern for policy %s", policy.name)
         return None
 
 
@@ -296,7 +318,9 @@ def get_host_policies(
             if ip in network:
                 policies.add(
                     HostNetworkPolicy(
-                        policy=policy,
+                        name=policy.name,
+                        description=policy.description,
+                        community_template_pattern=policy.community_template_pattern,
                         ip=ip,
                         mac=mac,
                         attributes=tuple(policy.attributes),
@@ -358,24 +382,23 @@ def create_ldif(ldifdata, ignore_size_change):
                 host_net_policy = com.community_global or com.community
             # Host is part of multiple communities - log and isolate if network supports it
             elif len(communities) > 1:
-                pol = policies.get_isolated_policy()
-                if pol is not None:
-                    isolated_name = pol.policy.get_isolated_name()
-                    if isolated_name:
-                        host_net_policy = isolated_name
-                        logger.warning(
-                            "Multiple communities found for host %s: %s. Isolating host to policy %s.",
-                            i["name"],
-                            ", ".join(com.community for com in communities),
-                            pol.policy.name,
-                        )
+                isolated_name = policies.get_isolated_policy_name()
+                if isolated_name is not None:
+                    host_net_policy = isolated_name
+                    logger.warning(
+                        "Multiple communities found for host %s: %s. Isolating host to policy %s.",
+                        i["name"],
+                        ", ".join(com.community for com in communities),
+                        isolated_name,
+                    )
                 else:
                     logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
             # Host is not part of a community - isolate if network supports it
-            elif policies.get_isolated_policy():
-                pol = policies.get_isolated_policy()
-                if pol is not None:
-                    host_net_policy = pol.policy.get_isolated_name()
+            # TODO: rewrite with assignment operator on Python >=3.8
+            elif policies.get_isolated_policy_name():
+                isolated_name = policies.get_isolated_policy_name()
+                if isolated_name is not None:
+                    host_net_policy = isolated_name
 
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
