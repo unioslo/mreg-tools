@@ -236,20 +236,34 @@ class HostPolicies:
     def __init__(self, policies: Set[HostNetworkPolicy]):
         self.policies = policies
 
-    def isolated_policies(self) -> Generator[HostNetworkPolicy, None, None]:
-        """Generator of network policies that support isolation."""
-        for policy in self.policies:
-            if "isolated" in policy.attributes:
-                yield policy
+    def __bool__(self) -> bool:
+        """Return True if there are any policies."""
+        return bool(self.policies)
 
-    def get_isolated_policy_name(self) -> Optional[str]:
-        """Get the first valid isolated policy name for the host, if any."""
-        for policy in self.isolated_policies():
+    def __iter__(self) -> Generator[HostNetworkPolicy, None, None]:
+        """Iterate over the policies."""
+        for policy in self.policies:
+            yield policy
+
+    def get_isolated_policy_name(self) -> str:
+        """Get the isolated policy name for the host using the first applicable policy.
+        
+        Raises ValueError if no isolated policy name can be determined.
+        We cannot produce a valid export if the host is part of policies,
+        but none support isolation.
+        """
+        if not self.policies:
+            raise ValueError("No policies available to determine isolated policy name.")
+        
+        for policy in self.policies:
             name = policy.get_isolated_name()
             if name is not None:
                 return name
-            logger.warning("No community template pattern for policy %s", policy.name)
-        return None
+
+        raise ValueError(
+            "Unable to determine isolated policy name for policies: "  # pyright: ignore[reportImplicitStringConcatenation]
+            f"{', '.join(p.name for p in self.policies)}"
+        )
 
 
 NetworkPolicyMappingType = Dict[
@@ -371,7 +385,7 @@ def create_ldif(ldifdata, ignore_size_change):
         # Add the host's network policy (using the community's global name, else <template_pattern>_isolated)
         policies = get_host_policies(i, net2policy)
         if policies:
-            host_net_policy: Optional[str] = None
+            host_net_policy: str
 
             # Determine the community/policy name to use in the export
             communities = get_host_communities(i, id2ip)
@@ -383,29 +397,24 @@ def create_ldif(ldifdata, ignore_size_change):
             # Host is part of multiple communities - log and isolate if network supports it
             elif len(communities) > 1:
                 isolated_name = policies.get_isolated_policy_name()
-                if isolated_name is not None:
-                    host_net_policy = isolated_name
-                    logger.warning(
-                        "Multiple communities found for host %s: %s. Isolating host to policy %s.",
-                        i["name"],
-                        ", ".join(com.community for com in communities),
-                        isolated_name,
-                    )
-                else:
-                    logger.warning("Unable to determine isolated policy for host %s with multiple communities", i["name"])
+                host_net_policy = isolated_name
+                logger.warning(
+                    "Multiple communities found for host %s: %s. Isolating host to policy %s.",
+                    i["name"],
+                    ", ".join(com.community for com in communities),
+                    isolated_name,
+                )
             # Host is not part of a community - isolate if network supports it
             # TODO: rewrite with assignment operator on Python >=3.8
-            elif policies.get_isolated_policy_name():
-                isolated_name = policies.get_isolated_policy_name()
-                if isolated_name is not None:
-                    host_net_policy = isolated_name
+            else:
+                host_net_policy = policies.get_isolated_policy_name()
 
+            host_net_policy = host_net_policy.strip()
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
             else:
-                logger.debug(
-                    "No applicable network policy found for host %s", i["name"]
-                )
+                raise ValueError(f"No applicable network policy found for host {i['name']}")
+
 
         _write(entry)
         for cinfo in i["cnames"]:
