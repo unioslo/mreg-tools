@@ -394,7 +394,7 @@ def create_ldif(ldifdata, ignore_size_change):
             if len(communities) == 1:
                 com = communities.pop()
                 host_net_policy = com.community_global or com.community
-            # Host is part of multiple communities - log and isolate if network supports it
+            # Host is part of multiple communities - log it and isolate it
             elif len(communities) > 1:
                 isolated_name = policies.get_isolated_policy_name()
                 host_net_policy = isolated_name
@@ -404,8 +404,7 @@ def create_ldif(ldifdata, ignore_size_change):
                     ", ".join(com.community for com in communities),
                     isolated_name,
                 )
-            # Host is not part of a community - isolate if network supports it
-            # TODO: rewrite with assignment operator on Python >=3.8
+            # Host is not part of a community - isolate it
             else:
                 host_net_policy = policies.get_isolated_policy_name()
 
