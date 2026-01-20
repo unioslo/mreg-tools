@@ -396,13 +396,12 @@ def create_ldif(ldifdata, ignore_size_change):
                 host_net_policy = com.community_global or com.community
             # Host is part of multiple communities - log it and isolate it
             elif len(communities) > 1:
-                isolated_name = policies.get_isolated_policy_name()
-                host_net_policy = isolated_name
+                host_net_policy = policies.get_isolated_policy_name()
                 logger.warning(
                     "Multiple communities found for host %s: %s. Isolating host to policy %s.",
                     i["name"],
                     ", ".join(com.community for com in communities),
-                    isolated_name,
+                    host_net_policy,
                 )
             # Host is not part of a community - isolate it
             else:
