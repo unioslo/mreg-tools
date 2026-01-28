@@ -1,0 +1,143 @@
+# MREG Tools - Combined Configuration File
+# This file contains configuration for all mreg-tools utilities.
+
+# =============================================================================
+# MREG API Connection Settings
+# =============================================================================
+[mreg]
+url = "http://localhost:8000/"
+username = "mreguser"
+passwordfile = "/path/to/pwd"
+# timeout = 20
+
+
+# =============================================================================
+# Path Settings (shared across utilities)
+# =============================================================================
+[paths]
+workdir = "/tmp/mreg/workdir"
+destdir = "/tmp/mreg/dstdir"
+logdir = "/tmp/mreg/logdir"
+
+# =============================================================================
+# get-dhcphosts - Export DHCP host information
+# =============================================================================
+[get-dhcphosts]
+# IP version to export: "ipv4", "ipv6", or "all"
+hosts = "ipv4"
+
+# Override path settings (optional [available for all commands])
+# [get-dhcphosts.paths]
+# workdir = "/custom/workdir"
+# destdir = "/custom/destdir"
+# logdir = "/custom/logdir"
+
+# Override MREG settings (optional [available for all commands])
+# [get-dhcphosts.mreg]
+# url = "http://other-mreg:8000/"
+# username = "other-mreguser"
+# passwordfile = "/path/to/other-pwd"
+
+# Run shell command after command completion (optional)
+# postcommand = ["sudo", "/path/to/script"]
+
+# =============================================================================
+# get-hostinfo - Export host information
+# =============================================================================
+[get-hostinfo]
+# File encoding for output files
+# fileencoding = "utf-8"
+
+# =============================================================================
+# get-hostpolicy - Export host policy information
+# =============================================================================
+[get-hostpolicy]
+# File encoding for output files
+fileencoding = "latin-1"
+
+# =============================================================================
+# get-zonefiles - Export DNS zone files
+# =============================================================================
+[get-zonefiles]
+# Extra directory for additional files
+extradir = "/mreg/extra"
+
+# Zones to export (use "zone=destname" to override output filename)
+zones = [
+  "example.org",
+  "0.10.in-addr.arpa",
+  "1.10.in-addr.arpa=10.1",
+]
+
+# Zones to export with private address ranges (RFC 1918) excluded
+zones_exclude_private = [
+  "example.org=example.org-public",
+]
+
+# =============================================================================
+# hostgroup-ldif - Generate LDIF for host groups (netgroups)
+# =============================================================================
+[hostgroup-ldif]
+filename = "hostgroups.ldif"
+fileencoding = "utf-8"
+
+# If a hostname ends with this domain, also add entry with domain removed
+domain = "example.org"
+
+# Include IPv6 networks
+ipv6networks = false
+
+# Create head entry in LDIF
+make_head_entry = true
+
+[hostgroup-ldif.ldif]
+dn = "cn=netgroups,dc=example,dc=org"
+description = "All netgroups"
+objectClass = ["top", "nisNetgroup"]
+ou = "netgroups"
+
+# =============================================================================
+# hosts-ldif - Generate LDIF for hosts
+# =============================================================================
+[hosts-ldif]
+filename = "hosts.ldif"
+
+# Maximum percentage of line changes allowed (safety limit)
+max_line_change_percent = 10
+
+# Limit to specific zone(s) (optional)
+# zone = "example.org"
+
+[hosts-ldif.ldif]
+dn = "cn=hosts,dc=example,dc=org"
+cn = "hosts"
+description = "Hosts at Example Inc."
+objectClass = "top"
+
+# =============================================================================
+# network-import - Import networks into MREG
+# =============================================================================
+[network-import]
+tagsfile = "tags.txt"
+
+# Override path settings for this command
+[network-import.paths]
+logdir = "/tmp/networkimport/logdir"
+
+# =============================================================================
+# network-ldif - Generate LDIF for networks
+# =============================================================================
+[network-ldif]
+filename = "networks.ldif"
+
+# Maximum percentage of line changes allowed (safety limit)
+max_line_change_percent = 10
+
+# Include IPv6 networks
+ipv6networks = false
+
+[network-ldif.ldif]
+dn = "cn=networks,dc=example,dc=org"
+cn = "networks"
+description = "IP networks at Example Inc."
+objectClass = "top"

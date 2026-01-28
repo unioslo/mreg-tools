@@ -1,2 +1,7 @@
-__pycache__/
-venv/
+**/__pycache__
+venv
+.venv
+.vscode
+**/*.json
+**/*.pylockfile
+.ruff_cache

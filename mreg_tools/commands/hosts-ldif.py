@@ -1,30 +1,35 @@
+from __future__ import annotations
+
 import argparse
 import configparser
 import io
 import ipaddress
-import pickle
 import os
 import pathlib
+import pickle
 import sys
-from typing import Any, Dict, Generator, List, NamedTuple, Optional, Set, Tuple, Union
+from collections.abc import Generator
+from typing import Any
+from typing import NamedTuple
 
 import fasteners
-
 import requests
 
 parentdir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(parentdir))
 import common.connection
 import common.utils
-
-from common.utils import error, updated_entries
-from common.LDIFutils import entry_string, make_head_entry
+from common.LDIFutils import entry_string
+from common.LDIFutils import make_head_entry
+from common.utils import error
+from common.utils import updated_entries
 
 SOURCES = {
     "hosts": "/api/v1/hosts/",
     "srvs": "/api/v1/srvs",
     "networks": "/api/v1/networks/",
 }
+
 
 class LdifData:
     def __init__(self, conn=None, sources={}):
@@ -41,21 +46,21 @@ class LdifData:
 
     @common.utils.timing
     def _get_entries(self, url, name, update=True):
-        if '?' in url:
-            url += '&'
+        if "?" in url:
+            url += "&"
         else:
-            url += '?'
-        url += 'page_size=1000&ordering=name'
+            url += "?"
+        url += "page_size=1000&ordering=name"
 
-        filename = os.path.join(cfg['default']['workdir'], f"{name}.pickle")
+        filename = os.path.join(cfg["default"]["workdir"], f"{name}.pickle")
         if update:
             objects = self.conn.get_list(url)
-            with open(filename, 'wb') as f:
+            with open(filename, "wb") as f:
                 pickle.dump(objects, f)
         else:
             if not os.path.isfile(filename):
                 error(f"No saved data file {filename} to use")
-            with open(filename, 'rb') as f:
+            with open(filename, "rb") as f:
                 objects = pickle.load(f)
         return objects
 
@@ -81,6 +86,7 @@ class LdifData:
 
         return self._updated
 
+
 def create_ip_to_vlan_mapping(hosts, networks):
     # Create and return a mapping between ip addresses and its vlan, if any
 
@@ -91,18 +97,18 @@ def create_ip_to_vlan_mapping(hosts, networks):
     net6_to_vlan = {}
 
     for n in networks:
-        if n['vlan'] is None:
+        if n["vlan"] is None:
             continue
-        network = ipaddress.ip_network(n['network'])
+        network = ipaddress.ip_network(n["network"])
         if network.version == 4:
-            net4_to_vlan[network] = n['vlan']
+            net4_to_vlan[network] = n["vlan"]
         else:
-            net6_to_vlan[network] = n['vlan']
+            net6_to_vlan[network] = n["vlan"]
 
     for i in hosts:
         host_ips = []
-        for ip in i['ipaddresses'] + i['ptr_overrides']:
-            ipaddr = ipaddress.ip_address(ip['ipaddress'])
+        for ip in i["ipaddresses"] + i["ptr_overrides"]:
+            ipaddr = ipaddress.ip_address(ip["ipaddress"])
             if ipaddr.version == 4:
                 all_4ips.append(ipaddr)
             else:
@@ -110,10 +116,9 @@ def create_ip_to_vlan_mapping(hosts, networks):
 
             host_ips.append(ipaddr)
         # Store the ip list on the host object
-        i['ips'] = host_ips
+        i["ips"] = host_ips
 
-    for net_to_vlan, all_ips in ((net4_to_vlan, all_4ips),
-                                 (net6_to_vlan, all_6ips)):
+    for net_to_vlan, all_ips in ((net4_to_vlan, all_4ips), (net6_to_vlan, all_6ips)):
         if not net_to_vlan:
             continue
         networks = list(net_to_vlan.keys())
@@ -128,18 +133,18 @@ def create_ip_to_vlan_mapping(hosts, networks):
                 vlan = net_to_vlan[network]
 
             if ip in network:
-               ip2vlan[ip] = vlan
+                ip2vlan[ip] = vlan
             else:
                 logger.debug(f"Not in network: {ip}, current network {network}")
 
     return ip2vlan
 
 
-IdToIpMappingType = Dict[str, Dict[str, Any]]
+IdToIpMappingType = dict[str, dict[str, Any]]
 """Mapping of IP address ID to the full IP address object."""
 
 
-def get_id_to_ip_mapping(hosts: List[Dict[str, Any]]) -> IdToIpMappingType:
+def get_id_to_ip_mapping(hosts: list[dict[str, Any]]) -> IdToIpMappingType:
     """Get a mapping of ip address IDs to the full IP address object."""
     id2ip: IdToIpMappingType = {}
     for i in hosts:
@@ -152,19 +157,19 @@ def get_id_to_ip_mapping(hosts: List[Dict[str, Any]]) -> IdToIpMappingType:
 
 class HostCommunity(NamedTuple):
     community: str
-    community_global: Optional[str]
+    community_global: str | None
     ip: str
     mac: str
 
 
 def get_host_communities(
-    host: Dict[str, Any], ip_mapping: IdToIpMappingType
-) -> Set[HostCommunity]:
+    host: dict[str, Any], ip_mapping: IdToIpMappingType
+) -> set[HostCommunity]:
     """Get the set of communities a host belongs to.
 
     Correlates the community object's IP address ID to IP and MAC addresses.
     """
-    communities: Set[HostCommunity] = set()
+    communities: set[HostCommunity] = set()
     for community_obj in host["communities"]:
         # Correlate the community's IP address ID to the full IP object
         ip_id = community_obj.get("ipaddress")
@@ -192,38 +197,39 @@ def get_host_communities(
     return communities
 
 
-
 class NetworkPolicy(NamedTuple):
     """Network policy with its attributes.
-    
+
     This data structure maps the API resource for a network policy.
     """
 
     name: str
-    description: Optional[str] = None # NOTE: can we remove union type? TextField(blank=True, ...) in model
-    community_template_pattern: Optional[str] = None
-    attributes: Tuple[str, ...] = tuple()
+    description: str | None = (
+        None  # NOTE: can we remove union type? TextField(blank=True, ...) in model
+    )
+    community_template_pattern: str | None = None
+    attributes: tuple[str, ...] = tuple()
 
 
 class HostNetworkPolicy(NamedTuple):
     """Active network policy (on a host) for the given IP address.
-    
+
     This data structure correlates a network policy to a specific IP and MAC
     address on a host.
     """
 
     # NOTE: this data structure corrlates
     # Extra fields that we need for host correlation:
-    ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address
     mac: str
 
     # Fields from the original API resource:
     name: str
-    description: Optional[str] = None
-    community_template_pattern: Optional[str] = None
-    attributes: Tuple[str, ...] = tuple()
+    description: str | None = None
+    community_template_pattern: str | None = None
+    attributes: tuple[str, ...] = tuple()
 
-    def get_isolated_name(self) -> Optional[str]:
+    def get_isolated_name(self) -> str | None:
         """Get the isolated community name for this policy, if applicable."""
         if self.community_template_pattern:
             return f"{self.community_template_pattern}_isolated"
@@ -233,7 +239,8 @@ class HostNetworkPolicy(NamedTuple):
 
 class HostPolicies:
     """Set of network policies applied to a host."""
-    def __init__(self, policies: Set[HostNetworkPolicy]):
+
+    def __init__(self, policies: set[HostNetworkPolicy]):
         self.policies = policies
 
     def __bool__(self) -> bool:
@@ -247,14 +254,14 @@ class HostPolicies:
 
     def get_isolated_policy_name(self) -> str:
         """Get the isolated policy name for the host using the first applicable policy.
-        
+
         Raises ValueError if no isolated policy name can be determined.
         We cannot produce a valid export if the host is part of policies,
         but none support isolation.
         """
         if not self.policies:
             raise ValueError("No policies available to determine isolated policy name.")
-        
+
         for policy in self.policies:
             name = policy.get_isolated_name()
             if name is not None:
@@ -266,14 +273,14 @@ class HostPolicies:
         )
 
 
-NetworkPolicyMappingType = Dict[
-    Union[ipaddress.IPv4Network, ipaddress.IPv6Network], NetworkPolicy
+NetworkPolicyMappingType = dict[
+    ipaddress.IPv4Network | ipaddress.IPv6Network, NetworkPolicy
 ]
 """Mapping of network to policy name."""
 
 
 def create_network_to_policy_mapping(
-    networks: List[Dict[str, Any]],
+    networks: list[dict[str, Any]],
 ) -> NetworkPolicyMappingType:
     net_to_policy: NetworkPolicyMappingType = {}
     for n in networks:
@@ -288,7 +295,7 @@ def create_network_to_policy_mapping(
             continue
 
         # Add all attributes with True values to the set of attributes
-        attributes: Set[str] = set()
+        attributes: set[str] = set()
         for attr in policy.get(
             "attributes", []
         ):  # list of dicts {"name": str, "value": bool}
@@ -300,17 +307,18 @@ def create_network_to_policy_mapping(
         net_to_policy[network] = NetworkPolicy(
             name=policy["name"],
             description=policy.get("description"),
-            community_template_pattern=policy.get("community_template_pattern") or policy.get("community_mapping_prefix"),
+            community_template_pattern=policy.get("community_template_pattern")
+            or policy.get("community_mapping_prefix"),
             attributes=tuple(attributes),
         )
     return net_to_policy
 
 
 def get_host_policies(
-    host: Dict[str, Any], network2policy: NetworkPolicyMappingType
+    host: dict[str, Any], network2policy: NetworkPolicyMappingType
 ) -> HostPolicies:
     """Get the set of network policies applied to a host."""
-    policies: Set[HostNetworkPolicy] = set()
+    policies: set[HostNetworkPolicy] = set()
     for ipaddr in host["ipaddresses"]:
         try:
             ip = ipaddress.ip_address(ipaddr["ipaddress"])
@@ -319,14 +327,14 @@ def get_host_policies(
                 f"Invalid IP address {ipaddr['ipaddress']} on host {host['name']}"
             )
             continue
-        
+
         mac = ipaddr.get("macaddress")
         if not mac:
             logger.debug(
                 f"No MAC address for IP {ip} on host {host['name']}. Not including in policies."
             )
             continue
-        
+
         # Correlate the IP address to its network policy
         for network, policy in network2policy.items():
             if ip in network:
@@ -346,13 +354,12 @@ def get_host_policies(
 
 @common.utils.timing
 def create_ldif(ldifdata, ignore_size_change):
-
     def _base_entry(name):
         return {
-            'dn': f'host={name},{dn}',
-            'host': name,
-            'objectClass': 'uioHostinfo',
-            }
+            "dn": f"host={name},{dn}",
+            "host": name,
+            "objectClass": "uioHostinfo",
+        }
 
     def _write(entry):
         f.write(entry_string(entry))
@@ -363,23 +370,29 @@ def create_ldif(ldifdata, ignore_size_change):
     net2policy = create_network_to_policy_mapping(ldifdata.networks)
 
     f = io.StringIO()
-    dn = cfg['ldif']['dn']
+    dn = cfg["ldif"]["dn"]
     _write(make_head_entry(cfg))
     for i in hosts:
         entry = _base_entry(i["name"])
-        entry.update({
-            'uioHostComment':  i['comment'],
-            'uioHostContact':  i['contact'],
-            })
-        mac = {ip['macaddress'] for ip in i['ipaddresses'] if ip['macaddress']}
+        entry.update(
+            {
+                "uioHostComment": i["comment"],
+                "uioHostContact": i["contact"],
+            }
+        )
+        mac = {ip["macaddress"] for ip in i["ipaddresses"] if ip["macaddress"]}
         if mac:
-            entry['uioHostMacAddr'] = sorted(mac)
-        for ipaddr in i['ips']:
+            entry["uioHostMacAddr"] = sorted(mac)
+        for ipaddr in i["ips"]:
             if ipaddr in ip2vlan:
-                entry['uioVlanID'] = ip2vlan[ipaddr]
+                entry["uioVlanID"] = ip2vlan[ipaddr]
                 if len(i["ips"]) > 1:
-                    logger.warning("Multiple IPs for host %s, using VLAN %s from IP %s",
-                                   i["name"], ip2vlan[ipaddr], ipaddr)
+                    logger.warning(
+                        "Multiple IPs for host %s, using VLAN %s from IP %s",
+                        i["name"],
+                        ip2vlan[ipaddr],
+                        ipaddr,
+                    )
                 break
 
         # Add the host's network policy (using the community's global name, else <template_pattern>_isolated)
@@ -411,8 +424,9 @@ def create_ldif(ldifdata, ignore_size_change):
             if host_net_policy:
                 entry["uioHostNetworkPolicy"] = host_net_policy
             else:
-                raise ValueError(f"No applicable network policy found for host {i['name']}")
-
+                raise ValueError(
+                    f"No applicable network policy found for host {i['name']}"
+                )
 
         _write(entry)
         for cinfo in i["cnames"]:
@@ -420,26 +434,32 @@ def create_ldif(ldifdata, ignore_size_change):
     for i in ldifdata.srvs:
         _write(_base_entry(i["name"]))
     try:
-        common.utils.write_file(cfg['default']['filename'], f,
-                                ignore_size_change=ignore_size_change)
+        common.utils.write_file(
+            cfg["default"]["filename"], f, ignore_size_change=ignore_size_change
+        )
     except common.utils.TooManyLineChanges as e:
         error(e.message)
 
 
 @common.utils.timing
 def hosts_ldif(args):
-    for i in ('destdir', 'workdir',):
-        common.utils.mkdir(cfg['default'][i])
+    for i in (
+        "destdir",
+        "workdir",
+    ):
+        common.utils.mkdir(cfg["default"][i])
 
-    lockfile = os.path.join(cfg['default']['workdir'], __file__ + 'lockfile')
+    lockfile = os.path.join(cfg["default"]["workdir"], __file__ + "lockfile")
     lock = fasteners.InterProcessLock(lockfile)
     if lock.acquire(blocking=False):
         ldifdata = LdifData(conn=conn, sources=SOURCES)
 
         if ldifdata.updated or args.force_check or args.use_saved_data:
-            ldifdata.get_entries(force=args.force_check, use_saved_data=args.use_saved_data)
+            ldifdata.get_entries(
+                force=args.force_check, use_saved_data=args.use_saved_data
+            )
             create_ldif(ldifdata, args.ignore_size_change)
-            if 'postcommand' in cfg['default']:
+            if "postcommand" in cfg["default"]:
                 common.utils.run_postcommand()
         else:
             logger.info("No updates")
@@ -451,36 +471,40 @@ def hosts_ldif(args):
 def main():
     global cfg, conn, logger
     parser = argparse.ArgumentParser(description="Export hosts from mreg as a ldif.")
-    parser.add_argument("--config",
-                        default="hosts-ldif.conf",
-                        help="path to config file (default: %(default)s)")
-    parser.add_argument('--force-check',
-                        action='store_true',
-                        help='force refresh of data from mreg')
-    parser.add_argument('--ignore-size-change',
-                        action='store_true',
-                        help='ignore size changes')
-    parser.add_argument('--use-saved-data',
-                        action='store_true',
-                        help='force use saved data from previous runs. --force-check')
+    parser.add_argument(
+        "--config",
+        default="hosts-ldif.conf",
+        help="path to config file (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--force-check", action="store_true", help="force refresh of data from mreg"
+    )
+    parser.add_argument(
+        "--ignore-size-change", action="store_true", help="ignore size changes"
+    )
+    parser.add_argument(
+        "--use-saved-data",
+        action="store_true",
+        help="force use saved data from previous runs. --force-check",
+    )
     args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
     cfg.optionxform = str
     cfg.read(args.config)
 
-    for i in ('default', 'mreg', 'ldif'):
+    for i in ("default", "mreg", "ldif"):
         if i not in cfg:
             error(f"Missing section {i} in config file", os.EX_CONFIG)
 
-    if 'filename' not in cfg['default']:
+    if "filename" not in cfg["default"]:
         error("Missing 'filename' in default section in config file", os.EX_CONFIG)
 
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
-    conn = common.connection.Connection(cfg['mreg'])
+    conn = common.connection.Connection(cfg["mreg"])
     hosts_ldif(args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
