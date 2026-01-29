@@ -5,3 +5,6 @@ venv
 **/*.json
 **/*.pylockfile
 .ruff_cache
+
+# Config files
+config.toml
