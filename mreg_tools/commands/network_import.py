@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-import argparse
 import configparser
 import ipaddress
 import logging
-import pathlib
 import re
-import sys
 from collections import defaultdict
 from operator import itemgetter
+from typing import Annotated
 
 import requests
+import typer
 from intervaltree import IntervalTree
 
-parentdir = pathlib.Path(__file__).resolve().parent.parent
-sys.path.append(str(parentdir))
-import common.connection
-import common.utils
-from common.utils import error
+from mreg_tools import common
+from mreg_tools.app import app
+from mreg_tools.common.utils import error
 
 basepath = "/api/v1/networks/"
 
@@ -470,31 +467,33 @@ def sync_with_mreg(args):
     logging.info(f"Done import of {args.networkfile}")
 
 
-def main():
+@app.command("network-import", help="Import networks into mreg.")
+def main(
+    networkfile: Annotated[
+        str,
+        typer.Argument(help="File with all networks"),
+    ],
+    config: Annotated[
+        str | None,
+        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    ] = None,
+    dryrun: Annotated[
+        bool,
+        typer.Option("--dryrun", help="Dryrun"),
+    ] = False,
+    force_size_change: Annotated[
+        bool,
+        typer.Option("--force-size-change", help="Allow more than MAX_SIZE_CHANGE changes"),
+    ] = False,
+    max_size_change: Annotated[
+        int,
+        typer.Option("--max-size-change", help="Max changes (change and delete) in percent"),
+    ] = 20,
+):
     global cfg, conn, logger
-    parser = argparse.ArgumentParser()
-    parser.add_argument("networkfile", help="File with all networks")
-    parser.add_argument(
-        "--config",
-        default="network-import.conf",
-        help="path to config file (default: network-import.conf)",
-    )
-    parser.add_argument("--dryrun", help="Dryrun", action="store_true")
-    parser.add_argument(
-        "--force-size-change",
-        help="Allow more than MAX_SIZE_CHANGE changes",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--max-size-change",
-        help="Max changes (change and delete) in percent (default: %(default)s)",
-        type=int,
-        default=20,
-    )
-    args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
-    cfg.read_file(open(args.config), args.config)
+    cfg.read_file(open(config or "network-import.conf"), config or "network-import.conf")
 
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
@@ -502,4 +501,5 @@ def main():
     sync_with_mreg(args)
 
 
-main()
+if __name__ == "__main__":
+    main()

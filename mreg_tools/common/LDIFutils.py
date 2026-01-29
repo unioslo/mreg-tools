@@ -50,7 +50,7 @@ def make_head_entry(cfg):
     return head_entry
 
 
-def to_iso646_60(string):
+def to_iso646_60(string: str | None) -> str:
     """Convert Norwegian characters to their ISO 646-60 representation."""
     tr = dict(zip("ÆØÅæøå", "[\\]{|}"))
     if string is None:

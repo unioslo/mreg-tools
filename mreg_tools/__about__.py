@@ -2,4 +2,4 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
-__version__ = version("my_package")
+__version__ = version("mreg-tools")

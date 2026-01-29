@@ -5,24 +5,24 @@ import configparser
 import io
 import ipaddress
 import os
-import pathlib
 import pickle
-import sys
 from collections.abc import Generator
-from typing import Any
+from typing import Annotated, Any, final
 from typing import NamedTuple
 
 import fasteners
+from mreg_api.models import Host, Network, Srv
 import requests
+import typer
 
-parentdir = pathlib.Path(__file__).resolve().parent.parent
-sys.path.append(str(parentdir))
-import common.connection
-import common.utils
-from common.LDIFutils import entry_string
-from common.LDIFutils import make_head_entry
-from common.utils import error
-from common.utils import updated_entries
+from mreg_tools import common
+from mreg_tools.app import app
+from mreg_tools.common.LDIFutils import entry_string
+from mreg_tools.common.LDIFutils import make_head_entry
+from mreg_tools.common.utils import error
+from mreg_tools.common.utils import updated_entries
+from mreg_tools.config import Config
+from mreg_tools.utils import dump_json
 
 SOURCES = {
     "hosts": "/api/v1/hosts/",
@@ -468,39 +468,91 @@ def hosts_ldif(args):
         logger.warning(f"Could not lock on {lockfile}")
 
 
-def main():
-    global cfg, conn, logger
-    parser = argparse.ArgumentParser(description="Export hosts from mreg as a ldif.")
-    parser.add_argument(
-        "--config",
-        default="hosts-ldif.conf",
-        help="path to config file (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--force-check", action="store_true", help="force refresh of data from mreg"
-    )
-    parser.add_argument(
-        "--ignore-size-change", action="store_true", help="ignore size changes"
-    )
-    parser.add_argument(
-        "--use-saved-data",
-        action="store_true",
-        help="force use saved data from previous runs. --force-check",
-    )
-    args = parser.parse_args()
+@final
+class HostsLDIF:
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        self.paths = self.config.hosts_ldif.paths or self.config.paths
 
-    cfg = configparser.ConfigParser()
-    cfg.optionxform = str
-    cfg.read(args.config)
+        if self.config.hosts_ldif.mreg:
+            self.client = app.get_client(self.config.hosts_ldif.mreg)
+        else:
+            self.client = app.get_client(self.config.mreg)
 
-    for i in ("default", "mreg", "ldif"):
-        if i not in cfg:
-            error(f"Missing section {i} in config file", os.EX_CONFIG)
+        self.hosts: list[Host] = []
+        self.networks: list[Network] = []
+        self.srvs: list[Srv] = []
 
-    if "filename" not in cfg["default"]:
-        error("Missing 'filename' in default section in config file", os.EX_CONFIG)
+        # Filenames for reading/writing fetched data
+        self.hosts_json = self.paths.dest("hosts.json")
+        self.networks_json = self.paths.dest("networks.json")
+        self.srvs_json = self.paths.dest("srvs.json")
 
-    common.utils.cfg = cfg
+    def dump_json(self) -> None:
+        """Dump fetched data to JSON files."""
+        dump_json(self.hosts, list[Host], self.hosts_json)
+        dump_json(self.networks, list[Network], self.networks_json)
+        dump_json(self.srvs, list[Srv], self.srvs_json)
+
+    def run(self) -> None:
+        if self.should_fetch():
+            self._fetch()
+
+    def should_fetch(self) -> bool:
+        # TODO: implement logic to determine if data should be fetched
+        return True
+
+    def _fetch(self) -> None:
+        self.hosts = self.client.host.get_list(limit=None, params={"page_size": 1000})
+        self.networks = self.client.network.get_list(
+            limit=None, params={"page_size": 1000}
+        )
+        self.srvs = self.client.srv.get_list(limit=None, params={"page_size": 1000})
+
+
+@app.command("hosts-ldif", help="Export hosts from mreg as a ldif.")
+def main(
+    config: Annotated[
+        str | None,
+        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    ] = None,
+    force_check: Annotated[
+        bool | None,
+        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
+    ] = None,
+    ignore_size_change: Annotated[
+        bool | None,
+        typer.Option(
+            "--ignore-size-change",
+            help="ignore size changes when writing the LDIF file",
+        ),
+    ] = None,
+    use_saved_data: Annotated[
+        bool | None,
+        typer.Option(
+            "--use-saved-data",
+            help="force use saved data from previous runs. Takes precedence over --force",
+        ),
+    ] = None,
+    filename: Annotated[
+        str | None,
+        typer.Option(
+            "--filename",
+            help="output filename for the ldif file",
+        ),
+    ] = None,
+):
+    # Get config and add overrides from command line
+    conf = app.get_config()
+    if force_check is not None:
+        conf.hosts_ldif.force_check = force_check
+    if ignore_size_change is not None:
+        conf.hosts_ldif.ignore_size_change = ignore_size_change
+    if use_saved_data is not None:
+        conf.hosts_ldif.use_saved_data = use_saved_data
+    if filename is not None:
+        conf.hosts_ldif.filename = filename
+
     logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg["mreg"])
     hosts_ldif(args)

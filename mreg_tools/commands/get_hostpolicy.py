@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-import argparse
 import configparser
 import io
 import os
-import pathlib
-import sys
 from collections import defaultdict
+from typing import Annotated
 
 import fasteners
 import requests
+import typer
 
-parentdir = pathlib.Path(__file__).resolve().parent.parent
-sys.path.append(str(parentdir))
-import common.connection
-import common.utils
-from common.utils import error
+from mreg_tools import common
+from mreg_tools.app import app
+from mreg_tools.common.utils import error
 
 
 def write_file(filename, f):
@@ -105,22 +102,22 @@ def dump_hostpolicies(force):
         logger.warning(f"Could not lock on {lockfile}")
 
 
-def main():
+@app.command("get-hostpolicy", help="Export hostpolicies from mreg as a textfiles.")
+def main(
+    config: Annotated[
+        str | None,
+        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="force update"),
+    ] = False,
+):
     global cfg, conn, logger
-    parser = argparse.ArgumentParser(
-        description="Export hostpolicies from mreg as a textfiles."
-    )
-    parser.add_argument(
-        "--config",
-        default="get-hostpolicy.conf",
-        help="path to config file (default: %(default)s)",
-    )
-    parser.add_argument("--force", action="store_true", help="force update")
-    args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
     cfg.optionxform = str
-    cfg.read(args.config)
+    cfg.read(config or "get-hostpolicy.conf")
 
     for i in (
         "default",
@@ -132,7 +129,7 @@ def main():
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg["mreg"])
-    dump_hostpolicies(args.force)
+    dump_hostpolicies(force)
 
 
 if __name__ == "__main__":

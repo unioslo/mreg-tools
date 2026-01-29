@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Self
 from typing import Any
 from typing import Literal
 from typing import NamedTuple
@@ -14,6 +14,7 @@ from pydantic import AfterValidator
 from pydantic import AliasChoices
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import SecretStr
 from pydantic import ValidationError
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -21,7 +22,7 @@ from pydantic_settings import PydanticBaseSettingsSource
 from pydantic_settings import SettingsConfigDict
 from pydantic_settings import TomlConfigSettingsSource
 
-from mreg_tools.constants import DEFAULT_DESTDIR
+from mreg_tools.constants import DEFAULT_CONFIG_PATHS, DEFAULT_DESTDIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
 
@@ -38,7 +39,7 @@ def to_path(value: Any) -> Path:
             pass
         return p.resolve()
     except Exception as e:
-        raise ValidationError(f"Invalid path {value}: {e}") from e
+        raise ValueError(f"Invalid path {value}: {e}") from e
 
 
 def to_path_optional(value: Any) -> Path | None:
@@ -61,6 +62,30 @@ class MregConfig(BaseModel):
     passwordfile: ResolvedPath | None = Field(
         default=None, description="Path to password file"
     )
+    password: SecretStr | None = Field(
+        default=None, description="MREG password (overrides passwordfile)"
+    )
+
+    def get_password(self) -> str:
+        """Retrieve the password from the passwordfile or the password field."""
+        if self.password is not None:
+            return self.password.get_secret_value()
+        elif self.passwordfile is not None:
+            return self._read_passwordfile()
+        else:
+            raise ValueError("No password or passwordfile specified in MREG config")
+
+    def _read_passwordfile(self) -> str:
+        """Read the password from the passwordfile."""
+        if self.passwordfile is None:
+            raise ValueError("No passwordfile specified in MREG config")
+        try:
+            with self.passwordfile.open("r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception as e:
+            raise ValueError(
+                f"Could not read password from file {self.passwordfile}: {e}"
+            ) from e
 
 
 class PathsConfig(BaseModel):
@@ -78,6 +103,18 @@ class PathsConfig(BaseModel):
         default=DEFAULT_LOGDIR,
         description="Log directory for the command",
     )
+
+    def dest(self, filename: str) -> Path:
+        """Get the full path to a file in the destination directory."""
+        return self.destdir / filename
+
+    def work(self, filename: str) -> Path:
+        """Get the full path to a file in the working directory."""
+        return self.workdir / filename
+
+    def log(self, filename: str) -> Path:
+        """Get the full path to a file in the log directory."""
+        return self.logdir / filename
 
 
 class _CommandBaseConfig(BaseModel):
@@ -223,6 +260,18 @@ class HostsLdifConfig(_CommandBaseConfig):
         default=None,
         description="Limit to specific zone",
     )
+    force_check: bool = Field(
+        default=False,
+        description="Always fetch new data from API, ignoring saved data",
+    )
+    ignore_size_change: bool = Field(
+        default=False,
+        description="Ignore size changes when writing the LDIF file",
+    )
+    use_saved_data: bool = Field(
+        default=False,
+        description="Force use saved data from previous runs. Takes precedence over force_check",
+    )
     ldif: LdifSettings | None = Field(
         default=None,
         description="LDIF settings",
@@ -321,3 +370,14 @@ class Config(BaseSettings):
             TomlConfigSettingsSource(settings_cls),
         )
         return cls._sources
+
+    @classmethod
+    def load(cls, file: Path | None = None) -> Self:
+        """Load configuration from the specified TOML file or default locations."""
+        if file:
+            config_files = [file]
+        else:
+            config_files = DEFAULT_CONFIG_PATHS
+        if file:
+            cls.model_config["toml_file"] = config_files
+        return cls()

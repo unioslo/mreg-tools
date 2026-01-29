@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-import argparse
 import configparser
 import io
 import ipaddress
 import os
-import pathlib
-import sys
 from collections import defaultdict
 from os.path import join as opj
+from typing import Annotated
 
 import fasteners
 import requests
+import typer
 
-parentdir = pathlib.Path(__file__).resolve().parent.parent
-sys.path.append(str(parentdir))
-import common.connection
-import common.utils
-from common.utils import error
+from mreg_tools import common
+from mreg_tools.app import app
+from mreg_tools.common.utils import error
 
 
 def create_files(dhcphosts, onefile, force, useOption79=False):
@@ -144,24 +141,28 @@ def dhcphosts(args):
         logger.warning(f"Could not lock on {lockfile}")
 
 
-def main():
+@app.command("get-dhcphosts", help="Create dhcp config from mreg.")
+def main(
+    config: Annotated[
+        str | None,
+        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    ] = None,
+    one_file: Annotated[
+        bool,
+        typer.Option(
+            "--one-file",
+            help="Write all hosts to one file, instead of per domain",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="force update"),
+    ] = False,
+):
     global cfg, conn, logger
-    parser = argparse.ArgumentParser(description="Create dhcp config from mreg.")
-    parser.add_argument(
-        "--config",
-        default="get-dhcphosts.conf",
-        help="path to config file (default: get-dhcphosts.conf)",
-    )
-    parser.add_argument(
-        "--one-file",
-        action="store_true",
-        help="Write all hosts to one file, instead of per domain",
-    )
-    parser.add_argument("--force", action="store_true", help="force update")
-    args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
-    cfg.read(args.config)
+    cfg.read(config or "get-dhcphosts.conf")
     # Make sure RFC6939 is disabled unless explicityly set as True
     cfg["default"]["useOption79"] = cfg["default"].get("useOption79", "false")
 

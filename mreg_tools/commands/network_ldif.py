@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-import argparse
 import configparser
 import io
 import ipaddress
 import os
-import pathlib
-import sys
+from typing import Annotated
 
 import fasteners
 import requests
+import typer
 
-parentdir = pathlib.Path(__file__).resolve().parent.parent
-sys.path.append(str(parentdir))
-import common.connection
-import common.utils
-from common.LDIFutils import entry_string
-from common.LDIFutils import make_head_entry
-from common.utils import error
+from mreg_tools import common
+from mreg_tools.app import app
+from mreg_tools.common.LDIFutils import entry_string
+from mreg_tools.common.LDIFutils import make_head_entry
+from mreg_tools.common.utils import error
 
 
 def create_ldif(networks, ignore_size_change):
@@ -90,25 +87,29 @@ def network_ldif(args, url):
         logger.warning(f"Could not lock on {lockfile}")
 
 
-def main():
+@app.command("network-ldif", help="Export network from mreg as a ldif.")
+def main(
+    config: Annotated[
+        str | None,
+        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    ] = None,
+    force_check: Annotated[
+        bool,
+        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
+    ] = False,
+    ignore_size_change: Annotated[
+        bool,
+        typer.Option(
+            "--ignore-size-change",
+            help="ignore size changes",
+        ),
+    ] = False,
+):
     global cfg, conn, logger
-    parser = argparse.ArgumentParser(description="Export network from mreg as a ldif.")
-    parser.add_argument(
-        "--config",
-        default="network-ldif.conf",
-        help="path to config file (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--force-check", action="store_true", help="force refresh of data from mreg"
-    )
-    parser.add_argument(
-        "--ignore-size-change", action="store_true", help="ignore size changes"
-    )
-    args = parser.parse_args()
 
     cfg = configparser.ConfigParser()
     cfg.optionxform = str
-    cfg.read(args.config)
+    cfg.read(config or "network-ldif.conf")
 
     for i in ("default", "mreg", "ldif"):
         if i not in cfg:

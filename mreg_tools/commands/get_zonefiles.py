@@ -1,24 +1,22 @@
 from __future__ import annotations
 
-import argparse
 import configparser
 import datetime
 import io
 import os
-import pathlib
 import sys
 from os.path import join as opj
+from typing import Annotated
 
 import fasteners
+import typer
 
 # replace in python 3.7 with datetime.fromisoformat
 from iso8601 import parse_date
 
-parentdir = pathlib.Path(__file__).resolve().parent.parent
-sys.path.append(str(parentdir))
-import common.connection
-import common.utils
-from common.utils import error
+from mreg_tools import common
+from mreg_tools.app import app
+from mreg_tools.common.utils import error
 
 
 def get_extradata(name):
@@ -148,21 +146,21 @@ def get_zonefiles(force):
         logger.warning(f"Could not lock on {lockfile}")
 
 
-def main():
+@app.command("get-zonefiles", help="Download zonefiles from mreg.")
+def main(
+    config: Annotated[
+        str | None,
+        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="force update of all zones"),
+    ] = False,
+):
     global cfg, conn, logger
-    parser = argparse.ArgumentParser(description="Download zonefiles from mreg.")
-    parser.add_argument(
-        "--config",
-        default="get-zonefiles.conf",
-        help="path to config file (default: get-zonefiles.conf)",
-    )
-    parser.add_argument(
-        "--force", action="store_true", default=False, help="force update of all zones"
-    )
-    args = parser.parse_args()
 
     cfg = configparser.ConfigParser(allow_no_value=True)
-    cfg.read(args.config)
+    cfg.read(config or "get-zonefiles.conf")
 
     for i in ("default", "mreg", "zones"):
         if i not in cfg:
@@ -171,7 +169,8 @@ def main():
     common.utils.cfg = cfg
     logger = common.utils.getLogger()
     conn = common.connection.Connection(cfg["mreg"], logger=logger)
-    get_zonefiles(args.force)
+    get_zonefiles(force)
 
 
-main()
+if __name__ == "__main__":
+    main()
