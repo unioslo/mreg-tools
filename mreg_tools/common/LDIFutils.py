@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import re
 import sys
 from abc import ABC
 from abc import abstractmethod
 from ast import literal_eval
 from base64 import b64encode
-from typing import Any
 
 from mreg_api import MregClient
 
 from mreg_tools.config import Config
 from mreg_tools.config import LDIFCommandConfig
 from mreg_tools.config import PathsConfig
-from mreg_tools.types import LDIFEntry, LDIFEntryValue
+from mreg_tools.types import LDIFEntry
 
 needs_base64 = re.compile(r"\A[\s:<]|[\0-\37\177]|\s\Z").search
 
@@ -27,7 +25,9 @@ class LDIFBase(ABC):
     """
 
     def __init__(self, config: Config) -> None:
-        from mreg_tools.app import app  # noqa: PLC0415 # TODO: move to top-level after refactoring is complete
+        from mreg_tools.app import (  # noqa: PLC0415 # TODO: move to top-level after refactoring is complete
+            app,
+        )
 
         self.config: Config = config
         self.paths: PathsConfig = self.command_config.paths or config.paths

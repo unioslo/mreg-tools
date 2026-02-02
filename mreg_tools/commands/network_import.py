@@ -483,11 +483,15 @@ def main(
     ] = False,
     force_size_change: Annotated[
         bool,
-        typer.Option("--force-size-change", help="Allow more than MAX_SIZE_CHANGE changes"),
+        typer.Option(
+            "--force-size-change", help="Allow more than MAX_SIZE_CHANGE changes"
+        ),
     ] = False,
     max_size_change: Annotated[
         int,
-        typer.Option("--max-size-change", help="Max changes (change and delete) in percent"),
+        typer.Option(
+            "--max-size-change", help="Max changes (change and delete) in percent"
+        ),
     ] = 20,
 ):
     global cfg, conn, logger

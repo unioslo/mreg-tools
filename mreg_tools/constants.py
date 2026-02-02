@@ -1,7 +1,8 @@
 from __future__ import annotations
-from platformdirs import PlatformDirs
 
 from pathlib import Path
+
+from platformdirs import PlatformDirs
 
 DEFAULT_WORKDIR = Path("/tmp/mreg/workdir")
 DEFAULT_DESTDIR = Path("/tmp/mreg/dstdir")

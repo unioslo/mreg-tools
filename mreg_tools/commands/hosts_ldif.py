@@ -7,7 +7,7 @@ import os
 import pickle
 import sys
 from collections.abc import Generator
-from typing import Annotated, cast
+from typing import Annotated
 from typing import Any
 from typing import NamedTuple
 from typing import NotRequired
@@ -16,7 +16,6 @@ from typing import final
 from typing import override
 
 import fasteners
-from mreg_api.types import IP_AddressT
 import requests
 import typer
 from mreg_api.models import Host
@@ -24,6 +23,7 @@ from mreg_api.models import IPAddress
 from mreg_api.models import Network
 from mreg_api.models import NetworkPolicy as NetworkPolicy2
 from mreg_api.models import Srv
+from mreg_api.types import IP_AddressT
 
 from mreg_tools import common
 from mreg_tools.app import app

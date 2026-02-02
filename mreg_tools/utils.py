@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from io import StringIO
 import logging
+from io import StringIO
 from pathlib import Path
 from typing import TypeVar
 

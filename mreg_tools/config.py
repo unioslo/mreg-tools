@@ -4,25 +4,26 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated
 from typing import Any
 from typing import Literal
 from typing import NamedTuple
+from typing import Self
 from typing import override
 
-from pydantic import AfterValidator, model_validator
+from pydantic import AfterValidator
 from pydantic import AliasChoices
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import SecretStr
-from pydantic import ValidationError
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import PydanticBaseSettingsSource
 from pydantic_settings import SettingsConfigDict
 from pydantic_settings import TomlConfigSettingsSource
 
-from mreg_tools.constants import DEFAULT_CONFIG_PATHS, DEFAULT_DESTDIR
+from mreg_tools.constants import DEFAULT_CONFIG_PATHS
+from mreg_tools.constants import DEFAULT_DESTDIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
 from mreg_tools.types import LDIFEntryValue
