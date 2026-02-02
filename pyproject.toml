@@ -48,7 +48,10 @@ mreg-tools = "mreg_tools.__main__:main"
 Repository = 'https://github.com/unioslo/mreg-tools/'
 
 [dependency-groups]
-dev = ["ruff"]
+dev = [
+    "pytest>=9.0.2",
+    "ruff",
+]
 
 [tool.pyright]
 reportUnusedCallResult = "information"

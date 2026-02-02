@@ -10,7 +10,7 @@ from typing import Literal
 from typing import NamedTuple
 from typing import override
 
-from pydantic import AfterValidator
+from pydantic import AfterValidator, model_validator
 from pydantic import AliasChoices
 from pydantic import BaseModel
 from pydantic import Field
@@ -25,6 +25,7 @@ from pydantic_settings import TomlConfigSettingsSource
 from mreg_tools.constants import DEFAULT_CONFIG_PATHS, DEFAULT_DESTDIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
+from mreg_tools.types import LDIFEntryValue
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class MregConfig(BaseModel):
     password: SecretStr | None = Field(
         default=None, description="MREG password (overrides passwordfile)"
     )
+    page_size: int = Field(default=1000, description="Page size for API requests")
 
     def get_password(self) -> str:
         """Retrieve the password from the passwordfile or the password field."""
@@ -116,8 +118,15 @@ class PathsConfig(BaseModel):
         """Get the full path to a file in the log directory."""
         return self.logdir / filename
 
+    def create_dirs(self) -> None:
+        """Create the workdir, destdir, and logdir if they don't exist."""
+        for path in (self.workdir, self.destdir, self.logdir):
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+                logger.info("Created directory: %s", str(path))
 
-class _CommandBaseConfig(BaseModel):
+
+class CommandConfig(BaseModel):
     """Base configuration for all commands with optional overrides."""
 
     mreg: MregConfig | None = Field(
@@ -136,15 +145,30 @@ class _CommandBaseConfig(BaseModel):
 class LdifSettings(BaseModel):
     """LDIF-specific settings for LDAP export commands."""
 
-    dn: str = Field(description="Distinguished name for the LDIF entry")
-    cn: str | None = Field(default=None, description="Common name")
-    description: str | None = Field(default=None, description="Description")
+    dn: str = Field(default="", description="Distinguished name for the LDIF entry")
+    cn: str = Field(default="", description="Common name")
+    description: str = Field(default="", description="Description")
     ou: str | None = Field(default=None, description="Organizational unit")
     # TODO: add normalization for objectClass as str or list[str]
-    objectClass: str | list[str] = Field(default="top", description="Object class(es)")
+    objectClass: list[str] = Field(default=["top"], description="Object class(es)")
+
+    @field_validator("objectClass", mode="before")
+    @classmethod
+    def normalize_object_class(cls, v: Any) -> list[str]:
+        """Parse objectClass given as string, list, or tuple literal."""
+        if isinstance(v, str) and v.startswith("(") and v.endswith(")"):
+            # If argument is in tuple literal format, strip and split it
+            v = [item for item in v.strip("() ").replace("'", "").split(",") if item]
+        if isinstance(v, str):
+            v = [v]
+        return v
+
+    def as_head_entry(self) -> dict[str, LDIFEntryValue]:
+        """Return the LDIF head entry as a dictionary of LDIF entry primitive values."""
+        return self.model_dump(mode="json")
 
 
-class GetDhcphostsConfig(_CommandBaseConfig):
+class GetDhcphostsConfig(CommandConfig):
     """Configuration for get-dhcphosts command."""
 
     hosts: Literal["ipv4", "ipv6", "all"] = Field(
@@ -153,19 +177,19 @@ class GetDhcphostsConfig(_CommandBaseConfig):
     )
 
 
-class GetHostinfoConfig(_CommandBaseConfig):
+class GetHostinfoConfig(CommandConfig):
     """Configuration for get-hostinfo command."""
 
-    fileencoding: str = Field(
+    encoding: str = Field(
         default="utf-8",
         description="File encoding for output files",
     )
 
 
-class GetHostpolicyConfig(_CommandBaseConfig):
+class GetHostpolicyConfig(CommandConfig):
     """Configuration for get-hostpolicy command."""
 
-    fileencoding: str = Field(
+    encoding: str = Field(
         default="utf-8",
         description="File encoding for output files",
     )
@@ -178,7 +202,7 @@ class ExportedZone(NamedTuple):
     destname: str
 
 
-class GetZonefilesConfig(_CommandBaseConfig):
+class GetZonefilesConfig(CommandConfig):
     """Configuration for get-zonefiles command."""
 
     extradir: ResolvedPath | None = Field(
@@ -216,14 +240,23 @@ class GetZonefilesConfig(_CommandBaseConfig):
         return result
 
 
-class HostgroupLdifConfig(_CommandBaseConfig):
+class LDIFCommandConfig(CommandConfig):
+    """Base configuration for LDIF export commands."""
+
+    ldif: LdifSettings = Field(
+        default_factory=LdifSettings,
+        description="LDIF settings",
+    )
+
+
+class HostgroupLdifConfig(LDIFCommandConfig):
     """Configuration for hostgroup-ldif command."""
 
     filename: str = Field(
         default="hostgroups.ldif",
         description="Output filename",
     )
-    fileencoding: str = Field(
+    encoding: str = Field(
         default="utf-8",
         description="File encoding for output files",
     )
@@ -239,13 +272,9 @@ class HostgroupLdifConfig(_CommandBaseConfig):
         default=True,
         description="Create head entry in LDIF",
     )
-    ldif: LdifSettings | None = Field(
-        default=None,
-        description="LDIF settings",
-    )
 
 
-class HostsLdifConfig(_CommandBaseConfig):
+class HostsLdifConfig(LDIFCommandConfig):
     """Configuration for hosts-ldif command."""
 
     filename: str = Field(
@@ -272,13 +301,9 @@ class HostsLdifConfig(_CommandBaseConfig):
         default=False,
         description="Force use saved data from previous runs. Takes precedence over force_check",
     )
-    ldif: LdifSettings | None = Field(
-        default=None,
-        description="LDIF settings",
-    )
 
 
-class NetworkImportConfig(_CommandBaseConfig):
+class NetworkImportConfig(CommandConfig):
     """Configuration for network-import command."""
 
     tagsfile: str | None = Field(
@@ -287,7 +312,7 @@ class NetworkImportConfig(_CommandBaseConfig):
     )
 
 
-class NetworkLdifConfig(_CommandBaseConfig):
+class NetworkLdifConfig(LDIFCommandConfig):
     """Configuration for network-ldif command."""
 
     filename: str = Field(
@@ -301,10 +326,6 @@ class NetworkLdifConfig(_CommandBaseConfig):
     ipv6networks: bool = Field(
         default=False,
         description="Include IPv6 networks",
-    )
-    ldif: LdifSettings | None = Field(
-        default=None,
-        description="LDIF settings",
     )
 
 

@@ -6,5 +6,10 @@ venv
 **/*.pylockfile
 .ruff_cache
 
-# Config files
+# Files
+
+## Config files
 config.toml
+
+## LDIF
+*.ldif

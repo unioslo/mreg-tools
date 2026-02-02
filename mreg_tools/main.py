@@ -3,6 +3,8 @@ from typing import Annotated
 
 import typer
 
+# Register commands
+from mreg_tools import commands  # noqa: F401  pyright: ignore[reportUnusedImport]
 from mreg_tools.app import app
 from mreg_tools.config import Config
 

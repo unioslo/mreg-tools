@@ -1,34 +1,51 @@
 from __future__ import annotations
 
-import argparse
-import configparser
 import io
 import ipaddress
+import logging
 import os
 import pickle
+import sys
 from collections.abc import Generator
-from typing import Annotated, Any, final
+from typing import Annotated, cast
+from typing import Any
 from typing import NamedTuple
+from typing import NotRequired
+from typing import TypedDict
+from typing import final
+from typing import override
 
 import fasteners
-from mreg_api.models import Host, Network, Srv
+from mreg_api.types import IP_AddressT
 import requests
 import typer
+from mreg_api.models import Host
+from mreg_api.models import IPAddress
+from mreg_api.models import Network
+from mreg_api.models import NetworkPolicy as NetworkPolicy2
+from mreg_api.models import Srv
 
 from mreg_tools import common
 from mreg_tools.app import app
+from mreg_tools.common.LDIFutils import LDIFBase
 from mreg_tools.common.LDIFutils import entry_string
 from mreg_tools.common.LDIFutils import make_head_entry
 from mreg_tools.common.utils import error
 from mreg_tools.common.utils import updated_entries
 from mreg_tools.config import Config
+from mreg_tools.config import HostsLdifConfig
 from mreg_tools.utils import dump_json
+from mreg_tools.utils import load_json
 
 SOURCES = {
     "hosts": "/api/v1/hosts/",
     "srvs": "/api/v1/srvs",
     "networks": "/api/v1/networks/",
 }
+
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 
 class LdifData:
@@ -352,6 +369,21 @@ def get_host_policies(
     return HostPolicies(policies)
 
 
+class HostLDIFEntry(TypedDict):
+    """Host LDIF entry structure."""
+
+    dn: str
+    host: str
+    objectClass: str | list[str]
+    memberNisNetgroup: NotRequired[list[str]]
+    nisNetgroupTriple: NotRequired[list[str]]
+    uioHostComment: NotRequired[str]
+    uioHostContact: NotRequired[str]
+    uioHostMacAddr: NotRequired[list[str]]
+    uioVlanID: NotRequired[list[int]]  # NOTE: only supports 1 VLAN ID per host currently
+    uioHostNetworkPolicy: NotRequired[str]
+
+
 @common.utils.timing
 def create_ldif(ldifdata, ignore_size_change):
     def _base_entry(name):
@@ -468,17 +500,209 @@ def hosts_ldif(args):
         logger.warning(f"Could not lock on {lockfile}")
 
 
-@final
-class HostsLDIF:
-    def __init__(self, config: Config) -> None:
-        self.config = config
-        self.paths = self.config.hosts_ldif.paths or self.config.paths
+IdToIpMappingType2 = dict[int, IPAddress]
 
-        if self.config.hosts_ldif.mreg:
-            self.client = app.get_client(self.config.hosts_ldif.mreg)
+
+NetworkPolicyMappingType2 = dict[
+    ipaddress.IPv4Network | ipaddress.IPv6Network, NetworkPolicy2
+]
+
+
+def create_network_to_policy_mapping2(
+    networks: list[Network],
+) -> NetworkPolicyMappingType2:
+    net_to_policy: NetworkPolicyMappingType2 = {}
+    for network in networks:
+        policy = network.policy
+        if policy is None:
+            continue
+        try:
+            network = ipaddress.ip_network(network.network)
+        except ValueError:
+            logger.warning(f"Invalid network {network.network}")
+            continue
+
+        net_to_policy[network] = policy
+    return net_to_policy
+
+
+def get_host_network_policies(
+    host: Host, policy_map: NetworkPolicyMappingType2
+) -> list[NetworkPolicy2]:
+    """Get the list of network policies applied to a host."""
+    policies: list[NetworkPolicy2] = []
+    for ip in host.ipaddresses:
+        for network, policy in policy_map.items():
+            if ip.ipaddress in network:
+                policies.append(policy)
+    return policies
+
+
+def get_isolated_policy_name(policies: list[NetworkPolicy2]) -> str:
+    """Get the isolated policy name for the host using the first applicable policy."""
+    for policy in policies:
+        if policy.community_template_pattern:
+            return f"{policy.community_template_pattern}_isolated"
+    raise ValueError(
+        "Unable to determine isolated policy name for policies: "  # pyright: ignore[reportImplicitStringConcatenation]
+        f"{', '.join(p.name for p in policies)}"
+    )
+
+
+def get_host_network_policy_name(
+    host: Host, policy_map: NetworkPolicyMappingType2
+) -> str | None:
+    """Get the LDIF network policy name for a host.
+
+    If the host has no policies, return None.
+    If the host is part of multiple communities, isolate it.
+    If the host is part of a single community, return the community's global name if available.
+    If the host is part of policies but no community, isolate it.
+
+    Args:
+        host (Host): Host object
+        policy_map (NetworkPolicyMappingType2): Mapping of networks to policies
+
+    Returns:
+        str | None: Network policy name or None if not found
+
+    Raises:
+        ValueError: If the host is part of policies but no isolated
+        policy name can be determined.
+    """
+    # A network policy is a prerequisite for communities
+    policies = get_host_network_policies(host, policy_map)
+    if not policies:
+        return None
+
+    # Host is part of a single community
+    if len(host.communities) == 1:
+        # Return the community's global name if available
+        return (
+            host.communities[0].community.global_name
+            or host.communities[0].community.name
+        )
+    # Host is part of multiple communities - log it and isolate it
+    elif len(host.communities) > 1:
+        host_net_policy = get_isolated_policy_name(policies)
+        logger.warning(
+            "Multiple communities found for host %s: %s. Isolating host to policy %s.",
+            host.name,
+            ", ".join(com.community.name for com in host.communities),
+            host_net_policy,
+        )
+        return host_net_policy
+    # Isolate if part of a policy but no community assigned
+    return get_isolated_policy_name(policies)
+
+
+IPVlanMapping = dict[IP_AddressT, int]
+"""Mapping of IP addresses to VLAN IDs."""
+
+
+def create_ip_to_vlan_mapping2(
+    hosts: list[Host], networks: list[Network]
+) -> IPVlanMapping:
+    """Create a mapping between IPs and their VLANs.
+
+    Args:
+        hosts (list[Host]): _list of Host objects_
+        networks (list[Network]): _list of Network objects_
+
+    Returns:
+        IPVlanMapping: Mapping of IP addresses to VLAN IDs
+    """
+    all_4ips: list[ipaddress.IPv4Address] = []
+    all_6ips: list[ipaddress.IPv6Address] = []
+    net4_to_vlan: dict[ipaddress.IPv4Network, int] = {}
+    net6_to_vlan: dict[ipaddress.IPv6Network, int] = {}
+
+    ip2vlan: dict[IP_AddressT, int] = {}
+
+    for n in networks:
+        if n.vlan is None:
+            continue
+
+        if isinstance(n.ip_network, ipaddress.IPv4Network):
+            net4_to_vlan[n.ip_network] = n.vlan
         else:
-            self.client = app.get_client(self.config.mreg)
+            net6_to_vlan[n.ip_network] = n.vlan
 
+    for host in hosts:
+        for ip in host.ipaddresses + host.ptr_overrides:
+            if isinstance(ip.ipaddress, ipaddress.IPv4Address):
+                all_4ips.append(ip.ipaddress)
+            else:
+                all_6ips.append(ip.ipaddress)
+
+    for ipv4 in all_4ips:
+        for network, vlan in net4_to_vlan.items():
+            if ipv4 in network:
+                ip2vlan[ipv4] = vlan
+                break
+        else:
+            logger.debug(f"IPv4 address {ipv4} not in any network")
+
+    for ipv6 in all_6ips:
+        for network, vlan in net6_to_vlan.items():
+            if ipv6 in network:
+                ip2vlan[ipv6] = vlan
+                break
+        else:
+            logger.debug(f"IPv6 address {ipv6} not in any network")
+
+    # for net_to_vlan, all_ips in ((net4_to_vlan, all_4ips), (net6_to_vlan, all_6ips)):
+    #     if not net_to_vlan:
+    #         continue
+    #     networks = list(net_to_vlan.keys())
+    #     network = networks.pop(0)
+    #     vlan = net_to_vlan[network]
+    #     for ip in sorted(all_ips):
+    #         while network.broadcast_address < ip:
+    #             if not networks:
+    #                 logger.debug(f"IP after last network: {ip}")
+    #                 break
+    #             network = networks.pop(0)
+    #             vlan = net_to_vlan[network]
+
+    #         if ip in network:
+    #             ip2vlan[ip] = vlan
+    #         else:
+    #             logger.debug(f"Not in network: {ip}, current network {network}")
+
+    return ip2vlan
+
+
+def get_host_vlan_ids(host: Host, ip_vlan_map: IPVlanMapping) -> list[int]:
+    """Get vlan IDs for a host.
+
+    Args:
+        host (Host): Host object
+        ip_vlan_map (IPVlanMapping): Mapping of IP addresses to VLAN IDs
+
+    Returns:
+        list[int]: List of VLAN IDs for the host
+    """
+    ids: list[int] = []
+    for ip in host.ipaddresses:
+        if ip.ipaddress in ip_vlan_map:
+            ids.append(ip_vlan_map[ip.ipaddress])
+    if len(ids) > 1:
+        logger.warning(
+            "Multiple VLAN IDs for host %s: %s. Using the first one: %s",
+            host.name,
+            ids,
+            ids[0],
+        )
+    return ids
+
+
+# TODO: add some sort of declarative data structure that tells HostsLDIF
+# what to fetch and how to process it.
+@final
+class HostsLDIF(LDIFBase):
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
         self.hosts: list[Host] = []
         self.networks: list[Network] = []
         self.srvs: list[Srv] = []
@@ -488,33 +712,124 @@ class HostsLDIF:
         self.networks_json = self.paths.dest("networks.json")
         self.srvs_json = self.paths.dest("srvs.json")
 
-    def dump_json(self) -> None:
-        """Dump fetched data to JSON files."""
-        dump_json(self.hosts, list[Host], self.hosts_json)
-        dump_json(self.networks, list[Network], self.networks_json)
-        dump_json(self.srvs, list[Srv], self.srvs_json)
+        self.saved_hosts = self.load_saved_hosts()
+        self.saved_networks = self.load_saved_networks()
+        self.saved_srvs = self.load_saved_srvs()
+
+    @property
+    @override
+    def command_config(self) -> HostsLdifConfig:
+        return self.config.hosts_ldif
 
     def run(self) -> None:
         if self.should_fetch():
             self._fetch()
+            self.dump_json()
+        else:
+            self.hosts = self.saved_hosts
+            self.networks = self.saved_networks
+            self.srvs = self.saved_srvs
+
+        self.create_ldif()
+
+    def dump_json(self) -> None:
+        """Dump fetched data to JSON files."""
+        dump_json(self.networks, list[Network], self.networks_json)
+        dump_json(self.srvs, list[Srv], self.srvs_json)
+        dump_json(self.hosts, list[Host], self.hosts_json)
+
+    def load_saved_hosts(self) -> list[Host]:
+        """Load saved hosts from JSON file."""
+        return load_json(list[Host], self.hosts_json) or []
+
+    def load_saved_networks(self) -> list[Network]:
+        """Load saved networks from JSON file."""
+        return load_json(list[Network], self.networks_json) or []
+
+    def load_saved_srvs(self) -> list[Srv]:
+        """Load saved SRVs from JSON file."""
+        return load_json(list[Srv], self.srvs_json) or []
 
     def should_fetch(self) -> bool:
+        """Determine if data should be fetched from MREG."""
+        return False
+        if self.config.hosts_ldif.force_check:
+            return True
+        elif self.config.hosts_ldif.use_saved_data:
+            return False
         # TODO: implement logic to determine if data should be fetched
         return True
 
     def _fetch(self) -> None:
-        self.hosts = self.client.host.get_list(limit=None, params={"page_size": 1000})
-        self.networks = self.client.network.get_list(
-            limit=None, params={"page_size": 1000}
-        )
-        self.srvs = self.client.srv.get_list(limit=None, params={"page_size": 1000})
+        self.networks = self.client.network.get_list(limit=None)
+        self.srvs = self.client.srv.get_list(limit=None)
+        self.hosts = self.client.host.get_list(limit=None)
+
+    def _name_to_base_entry(self, name: str) -> HostLDIFEntry:
+        """Create a base LDIF entry for a host name."""
+        return {
+            "dn": f"host={name},{self.config.hosts_ldif.ldif.dn}",
+            "host": name,
+            "objectClass": "uioHostinfo",
+        }
+
+    def host_to_ldif_entry(
+        self,
+        host: Host,
+        policy_map: NetworkPolicyMappingType2,
+        ip_vlan_map: IPVlanMapping,
+    ) -> HostLDIFEntry:
+        """Convert a host object to an LDIF entry."""
+        entry = self._name_to_base_entry(host.name)
+        entry["uioHostComment"] = host.comment
+        if emails := " ".join(host.contact_emails):
+            entry["uioHostContact"] = emails
+
+        mac_addresses = {ip.macaddress for ip in host.ipaddresses if ip.macaddress}
+        if mac_addresses:
+            entry["uioHostMacAddr"] = sorted(mac_addresses)
+
+        # Add host network policy if applicable
+        if net_pol := get_host_network_policy_name(host, policy_map):
+            entry["uioHostNetworkPolicy"] = net_pol
+
+        # Add VLAN ID if applicable
+        if vlan_ids := get_host_vlan_ids(host, ip_vlan_map):
+            # Only support one VLAN ID for now!
+            entry["uioVlanID"] = vlan_ids[:1]
+
+        return entry
+
+    def create_ldif(self) -> None:
+        """Create the LDIF file from fetched data."""
+        entries: list[HostLDIFEntry] = []
+        policy_map = create_network_to_policy_mapping2(self.networks)
+        ip_to_vlan_map = create_ip_to_vlan_mapping2(self.hosts, self.networks)
+        for host in self.hosts:
+            entry = self.host_to_ldif_entry(host, policy_map, ip_to_vlan_map)
+            entries.append(entry)
+
+            # Add CNAME entries for the host directly after it
+            for cname in host.cnames:
+                cname_entry = self._name_to_base_entry(cname.name)
+                entries.append(cname_entry)
+
+        for srv in self.srvs:
+            entry = self._name_to_base_entry(srv.name)
+            entries.append(entry)
+
+        ldifs = io.StringIO()
+        ldifs.write(entry_string(self.get_head_entry()))
+        for entry in entries:
+            ldifs.write(entry_string(entry))
+        print(entries)
 
 
 @app.command("hosts-ldif", help="Export hosts from mreg as a ldif.")
 def main(
     config: Annotated[
         str | None,
-        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+        typer.Option("--config", help="(DEPRECATED) path to config file", hidden=True),
     ] = None,
     force_check: Annotated[
         bool | None,
@@ -553,9 +868,12 @@ def main(
     if filename is not None:
         conf.hosts_ldif.filename = filename
 
-    logger = common.utils.getLogger()
-    conn = common.connection.Connection(cfg["mreg"])
-    hosts_ldif(args)
+    # logger = common.utils.getLogger()
+    # conn = common.connection.Connection(cfg["mreg"])
+    # hosts_ldif(args)
+
+    h = HostsLDIF(conf)
+    h.run()
 
 
 if __name__ == "__main__":

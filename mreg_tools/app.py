@@ -42,6 +42,8 @@ class MregToolsApp(typer.Typer):
         MregClient.reset_instance()
         client = MregClient(
             url=config.url,
+            timeout=600,  # TODO: make configurable?
+            page_size=config.page_size,
         )
         client.login(username=config.username, password=config.get_password())
         return client
