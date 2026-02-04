@@ -30,8 +30,9 @@ from mreg_tools.common.LDIFutils import make_head_entry
 from mreg_tools.common.utils import error
 from mreg_tools.config import Config
 from mreg_tools.config import HostsLdifConfig
-from mreg_tools.utils import dump_json
-from mreg_tools.utils import load_json
+from mreg_tools.common.utils import dump_json
+from mreg_tools.common.utils import load_json
+from mreg_tools.common.utils import write_file
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
@@ -463,7 +464,18 @@ class HostsLDIF(LDIFBase):
         ldifs.write(entry_string(self.get_head_entry()))
         for entry in entries:
             ldifs.write(entry_string(entry))
-        self.filename.write_text(ldifs.getvalue(), encoding=self.encoding)
+        write_file(
+            self.filename,
+            ldifs,
+            workdir=self.workdir,
+            encoding=self.encoding,
+            ignore_size_change=self.command_config.ignore_size_change,
+            # TODO: add resolution of keepoldfile from command config
+            keepoldfile=self.config.default.keepoldfile,
+            # TODO: fix this too!
+            max_line_change_percent=self.config.default.max_line_change_percent,
+        )
+        # self.filename.write_text(ldifs.getvalue(), encoding=self.encoding)
 
 
 @app.command("hosts-ldif", help="Export hosts from mreg as a ldif.")

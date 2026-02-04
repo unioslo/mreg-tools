@@ -1,82 +1,22 @@
 from __future__ import annotations
 
-import datetime
-import json
+from functools import wraps
 import logging
 import os
 import shutil
-import stat
-import subprocess
 import sys
 import tempfile
-from functools import wraps
+from io import StringIO
+from pathlib import Path
 from time import time
+from typing import NoReturn
+from typing import TypeVar
 
-# replace in python 3.7 with datetime.fromisoformat
-from iso8601 import parse_date
+from pydantic import TypeAdapter
 
-cfg = None
-logger = None
-# Maximum size change in percent for each line count threshold
-COMPARE_LIMITS_LINES = {50: 50, 100: 20, 1000: 15, 10000: 10, sys.maxsize: 10}
-# Absolute minimum file size, in lines
-ABSOLUTE_MIN_SIZE = 10
+T = TypeVar("T")
 
-
-class TooManyLineChanges(Exception):
-    def __init__(self, newfile, message):
-        self.newfile = newfile
-        self.message = message
-
-
-class TooSmallNewFile(Exception):
-    def __init__(self, newfile, message):
-        self.newfile = newfile
-        self.message = message
-
-
-def UmaskNamedTemporaryFile(*args, **kwargs):
-    f = tempfile.NamedTemporaryFile(*args, **kwargs)
-    oldmask = None
-    if cfg.has_option("default", "umask"):
-        umask = int(cfg["default"]["umask"], 8)
-        oldmask = os.umask(umask)
-        os.chmod(f.name, 0o666 & ~umask)
-    return f, oldmask
-
-
-def error(msg, code=os.EX_UNAVAILABLE):
-    if logger:
-        logger.error(msg)
-    print(f"ERROR: {msg}", file=sys.stderr)
-    sys.exit(code)
-
-
-def mkdir(path):
-    try:
-        os.makedirs(path, exist_ok=True)
-    except PermissionError as e:
-        error(f"{e}", code=e.errno)
-
-
-def getLogger():
-    global logger
-    if cfg["default"]["logdir"]:
-        logdir = cfg["default"]["logdir"]
-    else:
-        error("No logdir defined in config file")
-
-    mkdir(logdir)
-    filename = datetime.datetime.now().strftime("%Y-%m-%d.log")
-    filepath = os.path.join(logdir, filename)
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)-8s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        filename=filepath,
-        level=logging.INFO,
-    )
-    logger = logging.getLogger(__name__)
-    return logger
+logger = logging.getLogger(__name__)
 
 
 def timing(f):
@@ -91,120 +31,174 @@ def timing(f):
     return wrap
 
 
-def compare_file_size(oldfile, newfile, newlines):
-    """Compare filesizes with the new and old file, and if difference
-    above values in COMPARE_LIMITS_LINES, raise an exception.
+# Maximum size change in percent for each line count threshold
+COMPARE_LIMITS_LINES = {50: 50, 100: 20, 1000: 15, 10000: 10, sys.maxsize: 10}
+# Absolute minimum file size, in lines
+ABSOLUTE_MIN_SIZE = 10
+
+
+class TooManyLineChanges(Exception):
+    """Raised when the file size change exceeds the allowed limit."""
+
+    newfile: str | Path
+    message: str
+
+    def __init__(self, newfile: str | Path, message: str) -> None:
+        super().__init__(message)
+        self.newfile = newfile
+        self.message = message
+
+
+class TooSmallNewFile(Exception):
+    """Raised when the new file has fewer lines than the minimum required."""
+
+    newfile: str | Path
+    message: str
+
+    def __init__(self, newfile: str | Path, message: str) -> None:
+        super().__init__(message)
+        self.newfile = newfile
+        self.message = message
+
+
+def dump_json(obj: T, typ: type[T], filename: Path, indent: int = 2) -> None:
+    """Dump an object to a JSON file using Pydantic's TypeAdapter for validation."""
+    adapter = TypeAdapter(typ)
+    _ = filename.write_bytes(adapter.dump_json(obj, indent=indent))
+
+
+def load_json(typ: type[T], filename: Path) -> T | None:
+    """Load an object from a JSON file using Pydantic's TypeAdapter for validation."""
+    adapter = TypeAdapter(typ)
+    try:
+        data = filename.read_bytes()
+        return adapter.validate_json(data)
+    except FileNotFoundError:
+        logger.debug("File %s does not exist", str(filename))
+    except Exception as e:
+        logger.error("Failed to load file %s: %e", str(filename), e)
+    return None
+
+
+def compare_file_size(
+    oldfile: Path,
+    newlines: list[str],
+    max_line_change_percent: float | None = None,
+    encoding: str = "utf-8",
+) -> None:
+    """Compare file sizes and raise an exception if the difference exceeds the limit.
+
+    Args:
+        oldfile: Path to the existing file to compare against.
+        newlines: Lines of the new file content.
+        max_line_change_percent: Maximum allowed change in percent. If None, uses
+            dynamic limits based on file size.
+        encoding: File encoding to use when reading the old file.
+
+    Raises:
+        TooManyLineChanges: If the size difference exceeds the allowed limit.
     """
-    encoding = cfg["default"].get("fileencoding", "utf-8")
-    with open(oldfile, encoding=encoding) as old:
+    with oldfile.open(encoding=encoding) as old:
         oldlines = old.readlines()
 
-    if newlines == oldlines:
+    if oldlines == newlines:
         return
 
     old_count = len(oldlines)
-    diff_limit = cfg["default"].getfloat("max_line_change_percent")
+    diff_limit = max_line_change_percent
     if diff_limit is None:
         for linecount, limit in COMPARE_LIMITS_LINES.items():
             if old_count < linecount:
                 diff_limit = limit
                 break
 
+    if diff_limit is None:
+        diff_limit = COMPARE_LIMITS_LINES[sys.maxsize]
+
     diff_percent = (len(newlines) - old_count) / old_count * 100
     if abs(diff_percent) > diff_limit:
         raise TooManyLineChanges(
-            newfile,
-            f"New file {newfile} changed too much: {diff_percent:.2f}%, limit {diff_limit}%",
+            oldfile,
+            f"File {oldfile} changed too much: {diff_percent:.2f}%, limit {diff_limit}%",
         )
 
 
-def write_file(filename, f, ignore_size_change=False):
-    dstfile = os.path.join(cfg["default"]["destdir"], filename)
-    encoding = cfg["default"].get("fileencoding", "utf-8")
+def write_file(
+    destfile: Path,
+    content: StringIO,
+    *,
+    workdir: Path,
+    encoding: str = "utf-8",
+    ignore_size_change: bool = False,
+    keepoldfile: bool = True,
+    max_line_change_percent: float | None = None,
+) -> None:
+    """Write content to a file with safety checks.
 
-    tempf, oldmask = UmaskNamedTemporaryFile(
+    Writes the content to a temporary file first, then performs size validation
+    against the existing file (if any), and finally moves the temporary file
+    to the destination.
+
+    Args:
+        destfile: Full path to the destination file.
+        content: StringIO containing the content to write.
+        workdir: Directory for temporary files.
+        encoding: File encoding.
+        ignore_size_change: If True, skip file size validation.
+        keepoldfile: If True, keep a backup of the old file as `<destfile>_old`.
+        max_line_change_percent: Maximum allowed change in percent. If None, uses
+            dynamic limits based on file size.
+
+    Raises:
+        TooSmallNewFile: If the new file has fewer lines than ABSOLUTE_MIN_SIZE.
+        TooManyLineChanges: If the size difference exceeds the allowed limit.
+    """
+    # Create temp file in workdir
+    tempf = tempfile.NamedTemporaryFile(
         delete=False,
         mode="w",
         encoding=encoding,
-        dir=cfg["default"]["workdir"],
-        prefix=f"{filename}.",
+        dir=workdir,
+        prefix=f"{destfile.name}.",
     )
-    f.seek(0)
-    newlines = f.readlines()
-    if len(newlines) < ABSOLUTE_MIN_SIZE:
-        raise TooSmallNewFile(tempf.name, f"new file less than {ABSOLUTE_MIN_SIZE} lines")
-    # Write first to make sure the workdir can hold the new file
-    f.seek(0)
-    shutil.copyfileobj(f, tempf)
-    tempf.close()
 
-    if os.path.isfile(dstfile):
-        if not ignore_size_change:
-            compare_file_size(dstfile, tempf.name, newlines)
-        if cfg["default"].getboolean("keepoldfile", True):
-            oldfile = f"{dstfile}_old"
-            if os.path.isfile(oldfile):
-                os.chmod(oldfile, stat.S_IRUSR | stat.S_IWUSR)
-            shutil.copy2(dstfile, oldfile)
-            os.chmod(oldfile, stat.S_IRUSR)
-    shutil.move(tempf.name, dstfile)
-    if oldmask is not None:
-        # restore umask
-        os.umask(oldmask)
-    else:
-        os.chmod(dstfile, stat.S_IRUSR)
-
-
-def read_json_file(filename):
     try:
-        with open(filename) as f:
-            return json.load(f)
-    except (FileNotFoundError, EOFError):
-        logging.warning(f"Could not read data from {filename}")
-        return None
+        # Read content to validate size
+        content_str = content.getvalue()
+        newlines = content_str.splitlines(keepends=True)
+        if len(newlines) < ABSOLUTE_MIN_SIZE:
+            raise TooSmallNewFile(
+                tempf.name, f"new file less than {ABSOLUTE_MIN_SIZE} lines"
+            )
+
+        # Write content to temp file
+        with open(tempf.name, "w", encoding=encoding) as f:
+            f.write(content_str)
+
+        # Validate against existing file
+        if destfile.is_file() and not ignore_size_change:
+            compare_file_size(
+                destfile,
+                newlines,
+                max_line_change_percent=max_line_change_percent,
+                encoding=encoding,
+            )
+
+        # Keep backup of old file
+        if destfile.is_file() and keepoldfile:
+            oldfile = destfile.with_name(f"{destfile.name}_old")
+            _ = shutil.copy2(destfile, oldfile)
+
+        # Move temp file to destination
+        _ = shutil.move(tempf.name, destfile)
+
+    except Exception:
+        # Clean up temp file on error
+        Path(tempf.name).unlink(missing_ok=True)
+        raise
 
 
-def write_json_file(filename, info):
-    try:
-        with open(filename, "w") as f:
-            return json.dump(info, f)
-    except PermissionError:
-        error(f"No permission to write to {filename}")
-
-
-@timing
-def updated_entries(
-    conn, url, filename, obj_filter="page_size=1&ordering=-updated_at"
-) -> bool:
-    """Check if first entry is unchanged"""
-    filename = os.path.join(cfg["default"]["workdir"], filename)
-    if "?" in url:
-        url += "&"
-    else:
-        url += "?"
-    url += obj_filter
-    new_data = conn.get(url).json()
-    if new_data["count"] == 0:
-        error(f"No entries at: {url}")
-    old_data = read_json_file(filename)
-    if old_data is None:
-        write_json_file(filename, new_data)
-        return True
-
-    old_updated_at = parse_date(old_data["results"][0]["updated_at"])
-    new_updated_at = parse_date(new_data["results"][0]["updated_at"])
-    if (
-        old_data["count"] != new_data["count"]
-        or old_data["results"][0]["id"] != new_data["results"][0]["id"]
-        or old_updated_at < new_updated_at
-    ):
-        write_json_file(filename, new_data)
-        return True
-    return False
-
-
-@timing
-def run_postcommand():
-    timeout = cfg["default"].getint("postcommand_timeout", None)
-    command = json.loads(cfg["default"]["postcommand"])
-    subprocess.run(command, timeout=timeout)
+def error(msg: str, code: int = os.EX_UNAVAILABLE) -> NoReturn:
+    logger.error(msg)
+    print(f"ERROR: {msg}", file=sys.stderr)
+    sys.exit(code)
