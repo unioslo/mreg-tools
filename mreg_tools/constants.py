@@ -4,6 +4,10 @@ from pathlib import Path
 
 from platformdirs import PlatformDirs
 
+# TODO: use platformdirs, override these in actual configs
+# DEFAULT_WORKDIR = Path("/tmp/mreg-tools/workdir")
+# DEFAULT_DESTDIR = Path("/tmp/mreg-tools/dstdir")
+# DEFAULT_LOGDIR = Path("/tmp/mreg-tools/logdir")
 DEFAULT_WORKDIR = Path("/tmp/mreg/workdir")
 DEFAULT_DESTDIR = Path("/tmp/mreg/dstdir")
 DEFAULT_LOGDIR = Path("/tmp/mreg/logdir")
