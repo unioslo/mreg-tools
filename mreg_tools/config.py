@@ -134,12 +134,22 @@ class CommandConfig(BaseModel):
         default=None,
         description="MREG settings override for this command",
     )
-    paths: PathsConfig | None = Field(
-        default=None,
-        description="Path settings override for this command",
-    )
     postcommand: list[str] = Field(
         default_factory=list, description="Command to run after main command"
+    )
+
+    # Optional path overrides
+    workdir: ResolvedPath | None = Field(
+        default=None,
+        description="Working directory for the command",
+    )
+    destdir: ResolvedPath | None = Field(
+        default=None,
+        description="Destination directory for output",
+    )
+    logdir: ResolvedPath | None = Field(
+        default=None,
+        description="Log directory for the command",
     )
 
 
@@ -248,6 +258,10 @@ class LDIFCommandConfig(CommandConfig):
         default_factory=LdifSettings,
         description="LDIF settings",
     )
+    filename: str = Field(
+        # default specified by subclasses
+        description="Output filename",
+    )
 
 
 class HostgroupLdifConfig(LDIFCommandConfig):
@@ -330,12 +344,44 @@ class NetworkLdifConfig(LDIFCommandConfig):
     )
 
 
+class DefaultConfig(BaseModel):
+    """Default configuration section."""
+
+    workdir: ResolvedPath = Field(
+        default=DEFAULT_WORKDIR,
+        description="Working directory for the command",
+    )
+    destdir: ResolvedPath = Field(
+        default=DEFAULT_DESTDIR,
+        description="Destination directory for output",
+    )
+    logdir: ResolvedPath = Field(
+        default=DEFAULT_LOGDIR,
+        description="Log directory for the command",
+    )
+    fileencoding: str = Field(
+        default="utf-8",
+        description="File encoding for output files",
+    )
+    max_line_change_percent: int | None = Field(
+        default=None,
+        description="Maximum percentage of line changes allowed (safety limit)",
+    )
+    keepoldfile: bool = Field(
+        default=True,
+        description="Keep a backup of the old file when writing new files",
+    )
+
+
 class Config(BaseSettings):
     """Configuration class for mreg-tools."""
 
     # Global settings
+    default: DefaultConfig = Field(
+        default_factory=DefaultConfig,
+        description="Default configuration settings",
+    )
     mreg: MregConfig = Field(default_factory=MregConfig, description="MREG API settings")
-    paths: PathsConfig = Field(default_factory=PathsConfig, description="Path settings")
 
     # Command-specific configurations
     get_dhcphosts: GetDhcphostsConfig = Field(
@@ -373,6 +419,7 @@ class Config(BaseSettings):
 
     model_config = SettingsConfigDict(
         toml_file=["config.toml"],
+        extra="ignore",
     )
 
     @override

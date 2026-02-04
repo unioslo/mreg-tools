@@ -7,11 +7,15 @@ import os
 import pickle
 import sys
 from collections.abc import Generator
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated
 from typing import Any
+from typing import Generic
 from typing import NamedTuple
 from typing import NotRequired
 from typing import TypedDict
+from typing import TypeVar
 from typing import final
 from typing import override
 
@@ -511,6 +515,14 @@ NetworkPolicyMappingType2 = dict[
 def create_network_to_policy_mapping2(
     networks: list[Network],
 ) -> NetworkPolicyMappingType2:
+    """Create a mapping of networks to network policies.
+
+    Args:
+        networks (list[Network]): List of Network objects
+
+    Returns:
+        NetworkPolicyMappingType2: _description_
+    """
     net_to_policy: NetworkPolicyMappingType2 = {}
     for network in networks:
         policy = network.policy
@@ -619,6 +631,7 @@ def create_ip_to_vlan_mapping2(
 
     ip2vlan: dict[IP_AddressT, int] = {}
 
+    # Categorize networks by IP version
     for n in networks:
         if n.vlan is None:
             continue
@@ -628,6 +641,7 @@ def create_ip_to_vlan_mapping2(
         else:
             net6_to_vlan[n.ip_network] = n.vlan
 
+    # Collect all IP addresses from hosts
     for host in hosts:
         for ip in host.ipaddresses + host.ptr_overrides:
             if isinstance(ip.ipaddress, ipaddress.IPv4Address):
@@ -635,6 +649,7 @@ def create_ip_to_vlan_mapping2(
             else:
                 all_6ips.append(ip.ipaddress)
 
+    # Map IPv4 addresses to VLANs
     for ipv4 in all_4ips:
         for network, vlan in net4_to_vlan.items():
             if ipv4 in network:
@@ -643,6 +658,7 @@ def create_ip_to_vlan_mapping2(
         else:
             logger.debug(f"IPv4 address {ipv4} not in any network")
 
+    # Map IPv6 addresses to VLANs
     for ipv6 in all_6ips:
         for network, vlan in net6_to_vlan.items():
             if ipv6 in network:
@@ -650,26 +666,6 @@ def create_ip_to_vlan_mapping2(
                 break
         else:
             logger.debug(f"IPv6 address {ipv6} not in any network")
-
-    # for net_to_vlan, all_ips in ((net4_to_vlan, all_4ips), (net6_to_vlan, all_6ips)):
-    #     if not net_to_vlan:
-    #         continue
-    #     networks = list(net_to_vlan.keys())
-    #     network = networks.pop(0)
-    #     vlan = net_to_vlan[network]
-    #     for ip in sorted(all_ips):
-    #         while network.broadcast_address < ip:
-    #             if not networks:
-    #                 logger.debug(f"IP after last network: {ip}")
-    #                 break
-    #             network = networks.pop(0)
-    #             vlan = net_to_vlan[network]
-
-    #         if ip in network:
-    #             ip2vlan[ip] = vlan
-    #         else:
-    #             logger.debug(f"Not in network: {ip}, current network {network}")
-
     return ip2vlan
 
 
@@ -697,24 +693,78 @@ def get_host_vlan_ids(host: Host, ip_vlan_map: IPVlanMapping) -> list[int]:
     return ids
 
 
-# TODO: add some sort of declarative data structure that tells HostsLDIF
-# what to fetch and how to process it.
+T = TypeVar("T")
+
+
+@dataclass
+class LdifData(Generic[T]):
+    name: str
+    type: type[T]
+    default: T
+    _data: T | None = None
+
+    @property
+    def data(self) -> T:
+        return self._data if self._data is not None else self.default
+
+    @data.setter
+    def data(self, value: T) -> None:
+        self._data = value
+
+    def dump(self, directory: Path) -> None:
+        """Dump data to a JSON file.
+
+        Args:
+            directory (Path): Directory to dump the JSON file to.
+        """
+        dump_json(self.data, self.type, self.filename_json(directory))
+
+    def load(self, directory: Path) -> None:
+        """Load data from a JSON file.
+
+        Args:
+            directory (Path): Directory to load from.
+        """
+        self.data = load_json(self.type, self.filename_json(directory)) or self.default
+
+    def filename_json(self, directory: Path) -> Path:
+        return directory / f"{self.name}.json"
+
+
+class LdifDataStorage(NamedTuple):
+    hosts: LdifData[list[Host]]
+    networks: LdifData[list[Network]]
+    srvs: LdifData[list[Srv]]
+
+    def dump(self, directory: Path) -> None:
+        """Dump fetched data to JSON files."""
+        for ldif_data in self:
+            ldif_data.dump(directory)
+
+    def load(self, directory: Path) -> None:
+        """Load fetched data from JSON files."""
+        for ldif_data in self:
+            ldif_data.load(directory)
+
+    def has_data(self) -> bool:
+        """Return True if _all_ of the data files have data."""
+        return all(bool(ldif_data.data) for ldif_data in self)
+
+    def __bool__(self) -> bool:
+        """Return True if _ALL_ of the data files have data."""
+        return self.has_data()
+
+
 @final
 class HostsLDIF(LDIFBase):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
-        self.hosts: list[Host] = []
-        self.networks: list[Network] = []
-        self.srvs: list[Srv] = []
-
-        # Filenames for reading/writing fetched data
-        self.hosts_json = self.paths.dest("hosts.json")
-        self.networks_json = self.paths.dest("networks.json")
-        self.srvs_json = self.paths.dest("srvs.json")
-
-        self.saved_hosts = self.load_saved_hosts()
-        self.saved_networks = self.load_saved_networks()
-        self.saved_srvs = self.load_saved_srvs()
+        # Storage of fetched data
+        self.data = LdifDataStorage(
+            hosts=LdifData(name="hosts", type=list[Host], default=[]),
+            networks=LdifData(name="networks", type=list[Network], default=[]),
+            srvs=LdifData(name="srvs", type=list[Srv], default=[]),
+        )
 
     @property
     @override
@@ -722,48 +772,61 @@ class HostsLDIF(LDIFBase):
         return self.config.hosts_ldif
 
     def run(self) -> None:
+        self.data.load(self.workdir)
         if self.should_fetch():
-            self._fetch()
-            self.dump_json()
-        else:
-            self.hosts = self.saved_hosts
-            self.networks = self.saved_networks
-            self.srvs = self.saved_srvs
-
+            # Fetch data from MREG then dump it to disk before processing
+            self.data.networks.data = self.client.network.get_list(limit=None)
+            self.data.srvs.data = self.client.srv.get_list(limit=None)
+            self.data.hosts.data = self.client.host.get_list(limit=None)
+            self.data.dump(self.workdir)
         self.create_ldif()
-
-    def dump_json(self) -> None:
-        """Dump fetched data to JSON files."""
-        dump_json(self.networks, list[Network], self.networks_json)
-        dump_json(self.srvs, list[Srv], self.srvs_json)
-        dump_json(self.hosts, list[Host], self.hosts_json)
-
-    def load_saved_hosts(self) -> list[Host]:
-        """Load saved hosts from JSON file."""
-        return load_json(list[Host], self.hosts_json) or []
-
-    def load_saved_networks(self) -> list[Network]:
-        """Load saved networks from JSON file."""
-        return load_json(list[Network], self.networks_json) or []
-
-    def load_saved_srvs(self) -> list[Srv]:
-        """Load saved SRVs from JSON file."""
-        return load_json(list[Srv], self.srvs_json) or []
 
     def should_fetch(self) -> bool:
         """Determine if data should be fetched from MREG."""
-        return False
+        # No saved data, _must_ fetch
+        if not self.data.has_data():
+            logger.debug("No saved data, fetching new data.")
+            return True
+
+        # Force use saved data
+        if self.config.hosts_ldif.use_saved_data and self.data.has_data():
+            return False
+
+        # Force fetch
         if self.config.hosts_ldif.force_check:
             return True
-        elif self.config.hosts_ldif.use_saved_data:
-            return False
-        # TODO: implement logic to determine if data should be fetched
-        return True
+
+        # Saved data exists, check if it is up to date
+        if self.data.hosts.data:
+            first_host = self.client.host.get_first()
+            if first_host != self.data.hosts.data[0]:
+                logger.debug("First host has changed, fetching new data.")
+                return True
+            elif self.client.host.get_count() != len(self.data.hosts.data):
+                logger.debug("Number of hosts has changed, fetching new data.")
+                return True
+        elif self.data.networks.data:
+            first_network = self.client.network.get_first()
+            if first_network != self.data.networks.data[0]:
+                logger.debug("First network has changed, fetching new data.")
+                return True
+            elif self.client.network.get_count() != len(self.data.networks.data):
+                logger.debug("Number of networks has changed, fetching new data.")
+                return True
+        elif self.data.srvs.data:
+            first_srv = self.client.srv.get_first()
+            if first_srv != self.data.srvs.data[0]:
+                logger.debug("First srv has changed, fetching new data.")
+                return True
+            elif self.client.srv.get_count() != len(self.data.srvs.data):
+                logger.debug("Number of srvs has changed, fetching new data.")
+                return True
+        return False
 
     def _fetch(self) -> None:
-        self.networks = self.client.network.get_list(limit=None)
-        self.srvs = self.client.srv.get_list(limit=None)
-        self.hosts = self.client.host.get_list(limit=None)
+        self.data.networks.data = self.client.network.get_list(limit=None)
+        self.data.srvs.data = self.client.srv.get_list(limit=None)
+        self.data.hosts.data = self.client.host.get_list(limit=None)
 
     def _name_to_base_entry(self, name: str) -> HostLDIFEntry:
         """Create a base LDIF entry for a host name."""
@@ -803,9 +866,11 @@ class HostsLDIF(LDIFBase):
     def create_ldif(self) -> None:
         """Create the LDIF file from fetched data."""
         entries: list[HostLDIFEntry] = []
-        policy_map = create_network_to_policy_mapping2(self.networks)
-        ip_to_vlan_map = create_ip_to_vlan_mapping2(self.hosts, self.networks)
-        for host in self.hosts:
+        policy_map = create_network_to_policy_mapping2(self.data.networks.data)
+        ip_to_vlan_map = create_ip_to_vlan_mapping2(
+            self.data.hosts.data, self.data.networks.data
+        )
+        for host in self.data.hosts.data:
             entry = self.host_to_ldif_entry(host, policy_map, ip_to_vlan_map)
             entries.append(entry)
 
@@ -814,7 +879,7 @@ class HostsLDIF(LDIFBase):
                 cname_entry = self._name_to_base_entry(cname.name)
                 entries.append(cname_entry)
 
-        for srv in self.srvs:
+        for srv in self.data.srvs.data:
             entry = self._name_to_base_entry(srv.name)
             entries.append(entry)
 
