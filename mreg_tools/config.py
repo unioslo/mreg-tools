@@ -138,7 +138,11 @@ class CommandConfig(BaseModel):
         default_factory=list, description="Command to run after main command"
     )
 
-    # Optional path overrides
+    # Optional overrides for files
+    encoding: str | None = Field(
+        default=None,
+        description="File encoding for output files",
+    )
     workdir: ResolvedPath | None = Field(
         default=None,
         description="Working directory for the command",
@@ -191,19 +195,9 @@ class GetDhcphostsConfig(CommandConfig):
 class GetHostinfoConfig(CommandConfig):
     """Configuration for get-hostinfo command."""
 
-    encoding: str = Field(
-        default="utf-8",
-        description="File encoding for output files",
-    )
-
 
 class GetHostpolicyConfig(CommandConfig):
     """Configuration for get-hostpolicy command."""
-
-    encoding: str = Field(
-        default="utf-8",
-        description="File encoding for output files",
-    )
 
 
 class ExportedZone(NamedTuple):
@@ -270,10 +264,6 @@ class HostgroupLdifConfig(LDIFCommandConfig):
     filename: str = Field(
         default="hostgroups.ldif",
         description="Output filename",
-    )
-    encoding: str = Field(
-        default="utf-8",
-        description="File encoding for output files",
     )
     domain: str | None = Field(
         default=None,
@@ -359,7 +349,7 @@ class DefaultConfig(BaseModel):
         default=DEFAULT_LOGDIR,
         description="Log directory for the command",
     )
-    fileencoding: str = Field(
+    encoding: str = Field(
         default="utf-8",
         description="File encoding for output files",
     )

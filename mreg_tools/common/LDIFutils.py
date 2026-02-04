@@ -35,6 +35,7 @@ class LDIFBase(ABC):
         self.destdir: Path = self.command_config.destdir or config.default.destdir
         self.logdir: Path = self.command_config.logdir or config.default.logdir
         self.filename: Path = self.destdir / self.command_config.filename
+        self.encoding: str = self.command_config.encoding or config.default.encoding
 
         self.client: MregClient  # annotation only
         if self.command_config.mreg:
