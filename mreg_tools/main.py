@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from pathlib import Path
 from typing import Annotated
@@ -6,9 +6,18 @@ from typing import Annotated
 import typer
 
 # Register commands
-from mreg_tools import commands  # noqa: F401  pyright: ignore[reportUnusedImport]
+
 from mreg_tools.app import app
 from mreg_tools.config import Config
+from mreg_tools.logs import configure_logging
+
+# fmt: off
+# NOTE: EXTREMELY IMPORTANT TO LEAVE THIS IMPORT HERE!
+# This imports the commands from each module and registers them with the
+# typer app. If this import is removed, no commands will be registered
+# and the CLI will not work.
+from mreg_tools import commands  # noqa: F401, I001, PLC0415  # pyright: ignore[reportUnusedImport]
+# fmt: on
 
 
 @app.callback(invoke_without_command=True)
@@ -20,13 +29,16 @@ def main_callback(
     conf = Config.load(config)
     # NOTE: !!IMPORTANT!! Config must be set before anything else!
     app.set_config(conf)
+    configure_logging(conf)
 
     # client = app.get_client(conf.mreg)
 
 
 @app.command("test")
 def test() -> None:
-    client = app.get_client()
+    from mreg_tools.api import get_client_and_login
+
+    client = get_client_and_login(app.get_config().mreg)
     host = client.host.get_by_any_means_or_raise("auspex")
     print(f"Host: {host.name}, {host.id}")
 

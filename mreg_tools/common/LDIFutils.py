@@ -6,12 +6,15 @@ from abc import ABC
 from abc import abstractmethod
 from ast import literal_eval
 from base64 import b64encode
-from pathlib import Path
+from functools import cached_property
 
 from mreg_api import MregClient
 
+from mreg_tools.api import get_client_and_login
 from mreg_tools.config import Config
 from mreg_tools.config import LDIFCommandConfig
+from mreg_tools.config import ResolvedLdifCommandConfig
+from mreg_tools.output import exit_err
 from mreg_tools.types import LDIFEntry
 
 needs_base64 = re.compile(r"\A[\s:<]|[\0-\37\177]|\s\Z").search
@@ -22,47 +25,43 @@ class LDIFBase(ABC):
 
     Commands that produce LDIF output should define classes that
     inherit from this class.
+
+    Config access pattern:
+        self.config         - Resolved config with defaults applied (ResolvedLdifCommandConfig).
+                              Use for: workdir, destdir, encoding, mode, ldif, filename, etc.
+        self.command_config - Raw command config section (e.g. HostsLdifConfig).
+                              Use for: command-specific fields like force_check, zone, postcommand.
+        self._app_config    - Full application config (Config). Internal use only.
+                              Use for: logging config, other non-command settings.
     """
 
-    def __init__(self, config: Config) -> None:
-        from mreg_tools.app import (  # noqa: PLC0415 # TODO: move to top-level after refactoring is complete
-            app,
-        )
-
-        self.config: Config = config
-
-        self.workdir: Path = self.command_config.workdir or config.default.workdir
-        self.destdir: Path = self.command_config.destdir or config.default.destdir
-        self.logdir: Path = self.command_config.logdir or config.default.logdir
-        self.filename: Path = self.destdir / self.command_config.filename
-        self.encoding: str = self.command_config.encoding or config.default.encoding
-
-        self.client: MregClient  # annotation only
-        if self.command_config.mreg:
-            self.client = app.get_client(self.config.hosts_ldif.mreg)
-        else:
-            self.client = app.get_client(self.config.mreg)
-
+    def __init__(self, app_config: Config) -> None:
+        self._app_config: Config = app_config
+        self.client: MregClient = get_client_and_login(self.config.mreg_config)
         self._create_dirs()
 
-    def _create_dirs(self) -> None:
-        """Create necessary directories for LDIF output."""
-        for path in [self.workdir, self.destdir, self.logdir]:
-            try:
-                path.mkdir(parents=True, exist_ok=True)
-            except PermissionError as e:
-                print(f"ERROR: {e}", file=sys.stderr)
-                sys.exit(e.errno)
-
-    def get_head_entry(self) -> LDIFEntry:
-        """Get the LDIF head entry from the command configuration."""
-        return self.command_config.ldif.as_head_entry()
+    @cached_property
+    def config(self) -> ResolvedLdifCommandConfig:
+        """Resolved config with defaults applied. Primary config access point."""
+        return self._app_config.resolve_ldif(self.command_config)
 
     @property
     @abstractmethod
     def command_config(self) -> LDIFCommandConfig:
-        """Return the configuration for the current command."""
-        raise NotImplementedError
+        """Raw command config section (e.g. HostsLdifConfig)."""
+        ...
+
+    def _create_dirs(self) -> None:
+        """Create necessary directories for LDIF output."""
+        for path in [self.config.workdir, self.config.destdir, self.config.logdir]:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except PermissionError as e:
+                exit_err(f"Failed to create directory {path}: {e}", code=e.errno)
+
+    def get_head_entry(self) -> LDIFEntry:
+        """Get the LDIF head entry from the command configuration."""
+        return self.config.ldif.as_head_entry()
 
 
 def handle_value(attr: str, value: str | int) -> str:

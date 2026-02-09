@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from functools import wraps
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
+from functools import wraps
 from io import StringIO
 from pathlib import Path
 from time import time
@@ -13,6 +14,8 @@ from typing import NoReturn
 from typing import TypeVar
 
 from pydantic import TypeAdapter
+
+from mreg_tools.output import info
 
 T = TypeVar("T")
 
@@ -132,12 +135,13 @@ def write_file(
     ignore_size_change: bool = False,
     keepoldfile: bool = True,
     max_line_change_percent: float | None = None,
+    mode: int | None = None,
 ) -> None:
     """Write content to a file with safety checks.
 
     Writes the content to a temporary file first, then performs size validation
     against the existing file (if any), and finally moves the temporary file
-    to the destination.
+    to the destination if changes are within accepted parameters.
 
     Args:
         destfile: Full path to the destination file.
@@ -148,12 +152,13 @@ def write_file(
         keepoldfile: If True, keep a backup of the old file as `<destfile>_old`.
         max_line_change_percent: Maximum allowed change in percent. If None, uses
             dynamic limits based on file size.
+        mode: File mode to set on the destination file. If None, no change is made.
 
     Raises:
         TooSmallNewFile: If the new file has fewer lines than ABSOLUTE_MIN_SIZE.
         TooManyLineChanges: If the size difference exceeds the allowed limit.
     """
-    # Create temp file in workdir
+    # Create a temp file to write the new contents to
     tempf = tempfile.NamedTemporaryFile(
         delete=False,
         mode="w",
@@ -161,44 +166,66 @@ def write_file(
         dir=workdir,
         prefix=f"{destfile.name}.",
     )
+    # NOTE: we could call chmod on the temp file here
+    # but do we really want that? Ideally, we get rid of mode altogether.
 
-    try:
-        # Read content to validate size
-        content_str = content.getvalue()
-        newlines = content_str.splitlines(keepends=True)
-        if len(newlines) < ABSOLUTE_MIN_SIZE:
-            raise TooSmallNewFile(
-                tempf.name, f"new file less than {ABSOLUTE_MIN_SIZE} lines"
-            )
+    # Ensure number of lines is above minimum
+    content_str = content.getvalue()
+    newlines = content_str.splitlines(keepends=True)
+    if len(newlines) < ABSOLUTE_MIN_SIZE:
+        raise TooSmallNewFile(tempf.name, f"new file less than {ABSOLUTE_MIN_SIZE} lines")
 
-        # Write content to temp file
-        with open(tempf.name, "w", encoding=encoding) as f:
-            f.write(content_str)
+    # Write content to temp file before checking size
+    with open(tempf.name, "w", encoding=encoding) as f:
+        f.write(content_str)
 
-        # Validate against existing file
-        if destfile.is_file() and not ignore_size_change:
-            compare_file_size(
-                destfile,
-                newlines,
-                max_line_change_percent=max_line_change_percent,
-                encoding=encoding,
-            )
+    # Validate against existing file
+    # NOTE: This may raise an exception, but we have already writtten
+    # to the temp file at this point. This allows users to inspect
+    # the temp file manually to approve the changes and re-run
+    # the command with ignore_size_change=True or manually move
+    # the temp file to the destination.
+    if destfile.exists() and not ignore_size_change:
+        compare_file_size(
+            destfile,
+            newlines,
+            max_line_change_percent=max_line_change_percent,
+            encoding=encoding,
+        )
 
-        # Keep backup of old file
-        if destfile.is_file() and keepoldfile:
-            oldfile = destfile.with_name(f"{destfile.name}_old")
-            _ = shutil.copy2(destfile, oldfile)
+    # Keep backup of old file
+    if destfile.exists() and keepoldfile:
+        oldfile = destfile.with_name(f"{destfile.name}_old")
+        _ = shutil.copy2(destfile, oldfile)
 
-        # Move temp file to destination
-        _ = shutil.move(tempf.name, destfile)
+    # Move temp file to destination
+    _ = shutil.move(tempf.name, destfile)
 
-    except Exception:
-        # Clean up temp file on error
-        Path(tempf.name).unlink(missing_ok=True)
-        raise
+    if mode is not None:
+        destfile.chmod(mode)
+
+    info(f"Wrote file {destfile} ({len(newlines)} lines)")
 
 
-def error(msg: str, code: int = os.EX_UNAVAILABLE) -> NoReturn:
+def error(msg: str, code: int | None = os.EX_UNAVAILABLE) -> NoReturn:
+    from mreg_tools.output import err_console  # noqa: PLC0415
+
     logger.error(msg)
-    print(f"ERROR: {msg}", file=sys.stderr)
+    err_console.print(f"[bold red]ERROR:[/bold red] {msg}")
     sys.exit(code)
+
+
+def mkdir(path: str | Path) -> None:
+    """Make a directory at the given path, aborting if it cannot be created."""
+    path = Path(path)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        error(f"Failed to create directory {path}: {e}", code=e.errno)
+
+
+def run_postcommand(command: list[str], timeout: int | float | None = None) -> None:
+    """Run a post-command using subprocess.run with the given command and timeout."""
+    # TODO: output capture? logging? error handling?
+    logger.info("Running post-command: %s", " ".join(command))
+    subprocess.run(command, timeout=timeout)

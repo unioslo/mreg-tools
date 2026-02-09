@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +14,6 @@ from typing import TypeVar
 from typing import final
 from typing import override
 
-import fasteners
 import typer
 from mreg_api.models import Host
 from mreg_api.models import Network
@@ -26,13 +24,12 @@ from mreg_tools import common
 from mreg_tools.app import app
 from mreg_tools.common.LDIFutils import LDIFBase
 from mreg_tools.common.LDIFutils import entry_string
-from mreg_tools.common.LDIFutils import make_head_entry
-from mreg_tools.common.utils import error
-from mreg_tools.config import Config
-from mreg_tools.config import HostsLdifConfig
 from mreg_tools.common.utils import dump_json
 from mreg_tools.common.utils import load_json
 from mreg_tools.common.utils import write_file
+from mreg_tools.config import Config
+from mreg_tools.config import HostsLdifConfig
+from mreg_tools.logs import configure_logging
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
@@ -51,122 +48,6 @@ class HostLDIFEntry(TypedDict):
     uioHostMacAddr: NotRequired[list[str]]
     uioVlanID: NotRequired[list[int]]  # NOTE: only supports 1 VLAN ID per host currently
     uioHostNetworkPolicy: NotRequired[str]
-
-
-@common.utils.timing
-def create_ldif(ldifdata, ignore_size_change):
-    def _base_entry(name):
-        return {
-            "dn": f"host={name},{dn}",
-            "host": name,
-            "objectClass": "uioHostinfo",
-        }
-
-    def _write(entry):
-        f.write(entry_string(entry))
-
-    hosts = ldifdata.hosts
-    ip2vlan = create_ip_to_vlan_mapping(hosts, ldifdata.networks)
-    id2ip = get_id_to_ip_mapping(hosts)
-    net2policy = create_network_to_policy_mapping(ldifdata.networks)
-
-    f = io.StringIO()
-    dn = cfg["ldif"]["dn"]
-    _write(make_head_entry(cfg))
-    for i in hosts:
-        entry = _base_entry(i["name"])
-        entry.update(
-            {
-                "uioHostComment": i["comment"],
-                "uioHostContact": i["contact"],
-            }
-        )
-        mac = {ip["macaddress"] for ip in i["ipaddresses"] if ip["macaddress"]}
-        if mac:
-            entry["uioHostMacAddr"] = sorted(mac)
-        for ipaddr in i["ips"]:
-            if ipaddr in ip2vlan:
-                entry["uioVlanID"] = ip2vlan[ipaddr]
-                if len(i["ips"]) > 1:
-                    logger.warning(
-                        "Multiple IPs for host %s, using VLAN %s from IP %s",
-                        i["name"],
-                        ip2vlan[ipaddr],
-                        ipaddr,
-                    )
-                break
-
-        # Add the host's network policy (using the community's global name, else <template_pattern>_isolated)
-        policies = get_host_policies(i, net2policy)
-        if policies:
-            host_net_policy: str
-
-            # Determine the community/policy name to use in the export
-            communities = get_host_communities(i, id2ip)
-
-            # Host is part of a single community
-            if len(communities) == 1:
-                com = communities.pop()
-                host_net_policy = com.community_global or com.community
-            # Host is part of multiple communities - log it and isolate it
-            elif len(communities) > 1:
-                host_net_policy = policies.get_isolated_policy_name()
-                logger.warning(
-                    "Multiple communities found for host %s: %s. Isolating host to policy %s.",
-                    i["name"],
-                    ", ".join(com.community for com in communities),
-                    host_net_policy,
-                )
-            # Host is not part of a community - isolate it
-            else:
-                host_net_policy = policies.get_isolated_policy_name()
-
-            host_net_policy = host_net_policy.strip()
-            if host_net_policy:
-                entry["uioHostNetworkPolicy"] = host_net_policy
-            else:
-                raise ValueError(
-                    f"No applicable network policy found for host {i['name']}"
-                )
-
-        _write(entry)
-        for cinfo in i["cnames"]:
-            _write(_base_entry(cinfo["name"]))
-    for i in ldifdata.srvs:
-        _write(_base_entry(i["name"]))
-    try:
-        common.utils.write_file(
-            cfg["default"]["filename"], f, ignore_size_change=ignore_size_change
-        )
-    except common.utils.TooManyLineChanges as e:
-        error(e.message)
-
-
-@common.utils.timing
-def hosts_ldif(args):
-    for i in (
-        "destdir",
-        "workdir",
-    ):
-        common.utils.mkdir(cfg["default"][i])
-
-    lockfile = os.path.join(cfg["default"]["workdir"], __file__ + "lockfile")
-    lock = fasteners.InterProcessLock(lockfile)
-    if lock.acquire(blocking=False):
-        ldifdata = LdifData(conn=conn, sources=SOURCES)
-
-        if ldifdata.updated or args.force_check or args.use_saved_data:
-            ldifdata.get_entries(
-                force=args.force_check, use_saved_data=args.use_saved_data
-            )
-            create_ldif(ldifdata, args.ignore_size_change)
-            if "postcommand" in cfg["default"]:
-                common.utils.run_postcommand()
-        else:
-            logger.info("No updates")
-        lock.release()
-    else:
-        logger.warning(f"Could not lock on {lockfile}")
 
 
 def get_host_network_policies(host: Host, networks: list[Network]) -> list[NetworkPolicy]:
@@ -342,17 +223,33 @@ class HostsLDIF(LDIFBase):
     @property
     @override
     def command_config(self) -> HostsLdifConfig:
-        return self.config.hosts_ldif
+        return self._app_config.hosts_ldif
 
     def run(self) -> None:
-        self.data.load(self.workdir)
+        self.data.load(self.config.workdir)
         if self.should_fetch():
-            # Fetch data from MREG then dump it to disk before processing
-            self.data.networks.data = self.client.network.get_list(limit=None)
-            self.data.srvs.data = self.client.srv.get_list(limit=None)
-            self.data.hosts.data = self.client.host.get_list(limit=None)
-            self.data.dump(self.workdir)
+            # TODO: implement saving/loading of partial data for debugging ONLY.
+            # Currently not enabled, as we don't have the necessary heuristics
+            # to determine if a hybrid approach is appropriate.
+            # We don't currently have a way to signal which parts of the
+            # data should be fetched and which should be loaded from disk
+            # in `should_fetch()`.
+            self.data.networks.data = self.client.network.get_list(
+                limit=None, params={"ordering": "name"}
+            )
+            self.data.srvs.data = self.client.srv.get_list(
+                limit=None, params={"ordering": "name"}
+            )
+            self.data.hosts.data = self.client.host.get_list(
+                limit=None, params={"ordering": "name"}
+            )
+            self.data.dump(self.config.workdir)
         self.create_ldif()
+        if self.config.postcommand:
+            common.utils.run_postcommand(
+                self.config.postcommand,
+                self.config.postcommand_timeout,
+            )
 
     def should_fetch(self) -> bool:
         """Determine if data should be fetched from MREG."""
@@ -362,11 +259,11 @@ class HostsLDIF(LDIFBase):
             return True
 
         # Force use saved data
-        if self.config.hosts_ldif.use_saved_data and self.data.has_data():
+        if self.config.use_saved_data and self.data.has_data():
             return False
 
         # Force fetch
-        if self.config.hosts_ldif.force_check:
+        if self.config.force_check:
             return True
 
         # Saved data exists, check if it is up to date
@@ -398,15 +295,10 @@ class HostsLDIF(LDIFBase):
                 return True
         return False
 
-    def _fetch(self) -> None:
-        self.data.networks.data = self.client.network.get_list(limit=None)
-        self.data.srvs.data = self.client.srv.get_list(limit=None)
-        self.data.hosts.data = self.client.host.get_list(limit=None)
-
     def _name_to_base_entry(self, name: str) -> HostLDIFEntry:
         """Create a base LDIF entry for a host name."""
         return {
-            "dn": f"host={name},{self.config.hosts_ldif.ldif.dn}",
+            "dn": f"host={name},{self.config.ldif.dn}",
             "host": name,
             "objectClass": "uioHostinfo",
         }
@@ -445,8 +337,8 @@ class HostsLDIF(LDIFBase):
 
     def create_ldif(self) -> None:
         """Create the LDIF file from fetched data."""
+        # Collect the LDIF entries
         entries: list[HostLDIFEntry] = []
-
         for host in self.data.hosts.data:
             entry = self.host_to_ldif_entry(host)
             entries.append(entry)
@@ -460,22 +352,23 @@ class HostsLDIF(LDIFBase):
             entry = self._name_to_base_entry(srv.name)
             entries.append(entry)
 
+        # Construct the string to write to the LDIF file
         ldifs = io.StringIO()
         ldifs.write(entry_string(self.get_head_entry()))
         for entry in entries:
             ldifs.write(entry_string(entry))
+
+        # Write the LDIF to disk
         write_file(
-            self.filename,
+            self.config.destdir / self.config.filename,
             ldifs,
-            workdir=self.workdir,
-            encoding=self.encoding,
-            ignore_size_change=self.command_config.ignore_size_change,
-            # TODO: add resolution of keepoldfile from command config
-            keepoldfile=self.config.default.keepoldfile,
-            # TODO: fix this too!
-            max_line_change_percent=self.config.default.max_line_change_percent,
+            workdir=self.config.workdir,
+            encoding=self.config.encoding,
+            ignore_size_change=self.config.ignore_size_change,
+            keepoldfile=self.config.keepoldfile,
+            max_line_change_percent=self.config.max_line_change_percent,
+            mode=self.config.mode,
         )
-        # self.filename.write_text(ldifs.getvalue(), encoding=self.encoding)
 
 
 @app.command("hosts-ldif", help="Export hosts from mreg as a ldif.")
@@ -522,7 +415,11 @@ def main(
         conf.hosts_ldif.filename = filename
 
     h = HostsLDIF(conf)
-    h.run()
+    # TODO: move this into some sort of base command class
+    # which resolves config, creates directories, and sets up logging
+    configure_logging(conf)
+    with app.lock(h.config.workdir, "hosts_ldif"):
+        h.run()
 
     # TODO: limit to a specific zone if configured
 

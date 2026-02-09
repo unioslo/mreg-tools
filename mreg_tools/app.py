@@ -1,15 +1,46 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Protocol
+
 import typer
 from mreg_api import MregClient
+from rich.console import RenderableType
+from rich.status import Status
+from rich.style import StyleType
 
 from mreg_tools.config import Config
-from mreg_tools.config import MregConfig
+from mreg_tools.locks import lock_file
+from mreg_tools.output import err_console
+
+
+class StatusCallable(Protocol):
+    """Function that returns a Status object.
+
+    Protocol for rich.console.Console.status method.
+    """
+
+    def __call__(
+        self,
+        status: RenderableType,
+        *,
+        spinner: str = "dots",
+        spinner_style: StyleType = "status.spinner",
+        speed: float = 1.0,
+        refresh_per_second: float = 12.5,
+    ) -> Status: ...
 
 
 class MregToolsApp(typer.Typer):
     _config: Config | None = None  # Set by main callback
     _client: MregClient | None = None
+
+    @property
+    def status(self) -> StatusCallable:
+        """Get a status context manager from the error console."""
+        return err_console.status
 
     def set_config(self, config: Config) -> None:
         self._config = config
@@ -19,38 +50,19 @@ class MregToolsApp(typer.Typer):
             raise RuntimeError("Config not set")
         return self._config
 
-    def login(self, mreg_config: MregConfig | None = None) -> None:
-        """Alias for instantiating client and logging in without returning it."""
-        _ = self.get_client(mreg_config)
+    @contextmanager
+    def lock(self, workdir: Path, file: str | Path) -> Generator[None, None, None]:
+        """Get a lock for the given file."""
+        file = Path(file).with_suffix(".lock")
+        lock_file_path = workdir / file
 
-    def get_client(self, mreg_config: MregConfig | None = None) -> MregClient:
-        """Get the MREG API client. Creates new client and logs in if it doesn't exist.
-
-        Args:
-            mreg_config (MregConfig | None, optional): Alternative MREG config to pass in. Defaults to None.
-
-        Returns:
-            MregClient: Client instance
-        """
-        if mreg_config:
-            return self._client_from_config(mreg_config)
-        elif not self._client:
-            self._client = self._client_from_config(self.get_config().mreg)
-        return self._client
-
-    def _client_from_config(self, config: MregConfig) -> MregClient:
-        MregClient.reset_instance()
-        client = MregClient(
-            url=config.url,
-            timeout=600,  # TODO: make configurable?
-            page_size=config.page_size,
-        )
-        client.login(username=config.username, password=config.get_password())
-        return client
+        with lock_file(lock_file_path):
+            yield
 
 
 app = MregToolsApp(
     help="mreg-tools",
     add_completion=False,
     no_args_is_help=True,
+    pretty_exceptions_show_locals=False,
 )

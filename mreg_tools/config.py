@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 from pathlib import Path
 from typing import Annotated
 from typing import Any
@@ -14,8 +15,10 @@ from typing import override
 from pydantic import AfterValidator
 from pydantic import AliasChoices
 from pydantic import BaseModel
+from pydantic import BeforeValidator
 from pydantic import Field
 from pydantic import SecretStr
+from pydantic import field_serializer
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import PydanticBaseSettingsSource
@@ -27,8 +30,29 @@ from mreg_tools.constants import DEFAULT_DESTDIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
 from mreg_tools.types import LDIFEntryValue
+from mreg_tools.types import LogLevel
 
 logger = logging.getLogger(__name__)
+
+
+def parse_mode_before(v: Any) -> int | None:
+    """Parse file mode from integer or octal string."""
+    if v is None:
+        return None
+    if isinstance(v, int):
+        try:
+            return int(f"{v}", 8)
+        except ValueError as e:
+            raise ValueError(f"Invalid mode value: {v}") from e
+    if isinstance(v, str):
+        try:
+            return int(v, 8)
+        except ValueError as e:
+            raise ValueError(f"Invalid mode value: {v}") from e
+    return v  # let pydantic handle the error
+
+
+ModeValue = Annotated[int | None, BeforeValidator(parse_mode_before)]
 
 
 def to_path(value: Any) -> Path:
@@ -91,42 +115,6 @@ class MregConfig(BaseModel):
             ) from e
 
 
-class PathsConfig(BaseModel):
-    """Path settings for working directories."""
-
-    workdir: ResolvedPath = Field(
-        default=DEFAULT_WORKDIR,
-        description="Working directory for the command",
-    )
-    destdir: ResolvedPath = Field(
-        default=DEFAULT_DESTDIR,
-        description="Destination directory for output",
-    )
-    logdir: ResolvedPath = Field(
-        default=DEFAULT_LOGDIR,
-        description="Log directory for the command",
-    )
-
-    def dest(self, filename: str) -> Path:
-        """Get the full path to a file in the destination directory."""
-        return self.destdir / filename
-
-    def work(self, filename: str) -> Path:
-        """Get the full path to a file in the working directory."""
-        return self.workdir / filename
-
-    def log(self, filename: str) -> Path:
-        """Get the full path to a file in the log directory."""
-        return self.logdir / filename
-
-    def create_dirs(self) -> None:
-        """Create the workdir, destdir, and logdir if they don't exist."""
-        for path in (self.workdir, self.destdir, self.logdir):
-            if not path.exists():
-                path.mkdir(parents=True, exist_ok=True)
-                logger.info("Created directory: %s", str(path))
-
-
 class CommandConfig(BaseModel):
     """Base configuration for all commands with optional overrides."""
 
@@ -134,15 +122,18 @@ class CommandConfig(BaseModel):
         default=None,
         description="MREG settings override for this command",
     )
-    postcommand: list[str] = Field(
-        default_factory=list, description="Command to run after main command"
+    postcommand: list[str] | None = Field(
+        default=None,
+        description="Shell command to run after successful CLI command execution",
+    )
+    postcommand_timeout: int | float | None = Field(
+        default=None,
+        description="Timeout for postcommand in seconds (None means no timeout)",
     )
 
-    # Optional overrides for files
-    encoding: str | None = Field(
-        default=None,
-        description="File encoding for output files",
-    )
+    # Optional overrides for main config:
+
+    ## Directories
     workdir: ResolvedPath | None = Field(
         default=None,
         description="Working directory for the command",
@@ -151,10 +142,32 @@ class CommandConfig(BaseModel):
         default=None,
         description="Destination directory for output",
     )
-    logdir: ResolvedPath | None = Field(
+
+    ## File settings
+    encoding: str | None = Field(
         default=None,
-        description="Log directory for the command",
+        description="File encoding for output files",
     )
+    mode: ModeValue = Field(
+        default=None,
+        description="File mode to set when creating files (e.g. 0o644).",
+    )
+    max_line_change_percent: int | None = Field(
+        default=None,
+        description="Maximum percentage of line changes allowed (safety limit)",
+    )
+    keepoldfile: bool | None = Field(
+        default=None,
+        description="Keep a backup of the old file when writing new files",
+    )
+
+    @field_validator("postcommand", mode="before")
+    @classmethod
+    def validate_postcommand(cls, v: Any) -> Any:
+        """Process postcommand input as a string or list of strings."""
+        if isinstance(v, str):
+            return shlex.split(v)
+        return v
 
 
 class LdifSettings(BaseModel):
@@ -256,6 +269,18 @@ class LDIFCommandConfig(CommandConfig):
         # default specified by subclasses
         description="Output filename",
     )
+    ignore_size_change: bool = Field(
+        default=False,
+        description="Ignore size changes when writing the LDIF file",
+    )
+    force_check: bool = Field(
+        default=False,
+        description="Always fetch new data from API, ignoring saved data",
+    )
+    use_saved_data: bool = Field(
+        default=False,
+        description="Force use saved data from previous runs. Takes precedence over force_check",
+    )
 
 
 class HostgroupLdifConfig(LDIFCommandConfig):
@@ -286,25 +311,9 @@ class HostsLdifConfig(LDIFCommandConfig):
         default="hosts.ldif",
         description="Output filename",
     )
-    max_line_change_percent: int = Field(
-        default=10,
-        description="Maximum percentage of line changes allowed (safety limit)",
-    )
     zone: str | None = Field(
         default=None,
         description="Limit to specific zone",
-    )
-    force_check: bool = Field(
-        default=False,
-        description="Always fetch new data from API, ignoring saved data",
-    )
-    ignore_size_change: bool = Field(
-        default=False,
-        description="Ignore size changes when writing the LDIF file",
-    )
-    use_saved_data: bool = Field(
-        default=False,
-        description="Force use saved data from previous runs. Takes precedence over force_check",
     )
 
 
@@ -323,10 +332,6 @@ class NetworkLdifConfig(LDIFCommandConfig):
     filename: str = Field(
         default="networks.ldif",
         description="Output filename",
-    )
-    max_line_change_percent: int = Field(
-        default=10,
-        description="Maximum percentage of line changes allowed (safety limit)",
     )
     ipv6networks: bool = Field(
         default=False,
@@ -353,6 +358,10 @@ class DefaultConfig(BaseModel):
         default="utf-8",
         description="File encoding for output files",
     )
+    mode: ModeValue = Field(
+        default=None,
+        description="File mode to set when creating files (e.g. 0o644).",
+    )
     max_line_change_percent: int | None = Field(
         default=None,
         description="Maximum percentage of line changes allowed (safety limit)",
@@ -361,6 +370,127 @@ class DefaultConfig(BaseModel):
         default=True,
         description="Keep a backup of the old file when writing new files",
     )
+
+
+class LoggingHandlerConfig(BaseModel):
+    """Base logging configuration section."""
+
+    level: LogLevel = Field(
+        default=LogLevel.INFO,
+        description="Override level for this handler.",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Enable logging handler.",
+    )
+
+
+class FileLoggingConfig(LoggingHandlerConfig):
+    """File logging configuration section."""
+
+    # NOTE: Base filename has been changed from a date-based filename
+    # to a fixed filename to simplify log management and rotation.
+    # Furthermore, this makes it easier to integrate the logs into
+    # existing log management systems that expect a consistent filename.
+    filename: str = Field(
+        default="mreg-tools.log",
+        description="Log filename (used if file logging is enabled)",
+    )
+    directory: ResolvedPath = Field(
+        default=DEFAULT_LOGDIR,
+        description="Directory for log files",
+    )
+    rotate: bool = Field(
+        default=True,
+        description="Use rotating file handler",
+    )
+    rotate: bool = Field(
+        default=True,
+        description="Whether to enable log rotation for the file logger.",
+    )
+    max_size_mb: int = Field(
+        default=50,
+        description="Maximum size of the log file in megabytes.",
+    )
+    max_logs: int = Field(
+        default=5,
+        description="Maximum number of log files to keep.",
+    )
+
+    @property
+    def path(self) -> Path:
+        """Get the full path to the log file."""
+        return self.directory / self.filename
+
+    def max_size_as_bytes(self) -> int:
+        """Return the maximum size of the log file in bytes."""
+        return self.max_size_mb * 1024 * 1024
+
+
+class ConsoleLoggingConfig(LoggingHandlerConfig):
+    """Console logging configuration section."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable logging handler.",
+    )
+
+
+class LoggingConfig(BaseModel):
+    """Logging configuration section."""
+
+    level: LogLevel = Field(
+        default=LogLevel.INFO,
+        description=(
+            "Logging level for both console and file handlers. "
+            "Individual handlers can override this level with their own 'level' setting."
+        ),
+    )
+    console: ConsoleLoggingConfig = Field(
+        default_factory=ConsoleLoggingConfig,
+        description="Console logging settings",
+    )
+    file: FileLoggingConfig = Field(
+        default_factory=FileLoggingConfig,
+        description="File logging settings",
+    )
+
+    @field_serializer("level")
+    def serialize_level(self, level: LogLevel) -> str:
+        """Serialize the LogLevel enum to its name for better readability in config files."""
+        return level.name
+
+    @override
+    def model_post_init(self, context: Any, /) -> None:
+        # Set handler levels to the main level if they are not explicitly set
+        for field in [self.console, self.file]:
+            if "level" not in field.model_fields_set:
+                field.level = self.level
+
+
+class ResolvedCommandConfig(BaseModel):
+    """Command configuration with all overrides resolved to final values."""
+
+    workdir: Path
+    destdir: Path
+    logdir: Path
+    encoding: str
+    mode: int | None
+    max_line_change_percent: int | None
+    mreg_config: MregConfig
+    keepoldfile: bool
+    postcommand: list[str] | None
+    postcommand_timeout: int | float | None
+
+
+class ResolvedLdifCommandConfig(ResolvedCommandConfig):
+    """Resolved configuration for LDIF export commands."""
+
+    ldif: LdifSettings
+    filename: str
+    ignore_size_change: bool
+    force_check: bool
+    use_saved_data: bool
 
 
 class Config(BaseSettings):
@@ -372,6 +502,10 @@ class Config(BaseSettings):
         description="Default configuration settings",
     )
     mreg: MregConfig = Field(default_factory=MregConfig, description="MREG API settings")
+    logging: LoggingConfig = Field(
+        default_factory=LoggingConfig,
+        description="Logging configuration settings",
+    )
 
     # Command-specific configurations
     get_dhcphosts: GetDhcphostsConfig = Field(
@@ -437,6 +571,59 @@ class Config(BaseSettings):
             config_files = [file]
         else:
             config_files = DEFAULT_CONFIG_PATHS
+        # TODO: use context manager to temporarily set the toml_file source for this load operation, instead of mutating the class variable
         if file:
             cls.model_config["toml_file"] = config_files
         return cls()
+
+    def resolve(self, command_config: CommandConfig) -> ResolvedCommandConfig:
+        """Resolve a CommandConfig by applying overrides to the default config."""
+        return ResolvedCommandConfig(
+            workdir=command_config.workdir or self.default.workdir,
+            destdir=command_config.destdir or self.default.destdir,
+            logdir=self.default.logdir,  # logdir is not overridden by command config
+            encoding=command_config.encoding or self.default.encoding,
+            mode=(
+                command_config.mode
+                if command_config.mode is not None
+                else self.default.mode
+            ),
+            max_line_change_percent=(
+                command_config.max_line_change_percent
+                if command_config.max_line_change_percent is not None
+                else self.default.max_line_change_percent
+            ),
+            mreg_config=command_config.mreg or self.mreg,
+            keepoldfile=(
+                command_config.keepoldfile
+                if command_config.keepoldfile is not None
+                else self.default.keepoldfile
+            ),
+            postcommand=command_config.postcommand,
+            postcommand_timeout=command_config.postcommand_timeout,
+        )
+
+    def resolve_ldif(
+        self, command_config: LDIFCommandConfig
+    ) -> ResolvedLdifCommandConfig:
+        """Resolve an LDIFCommandConfig by applying overrides to the default config."""
+        base = self.resolve(command_config)
+        return ResolvedLdifCommandConfig(
+            # Base command config options
+            workdir=base.workdir,
+            destdir=base.destdir,
+            logdir=base.logdir,
+            encoding=base.encoding,
+            mode=base.mode,
+            max_line_change_percent=base.max_line_change_percent,
+            mreg_config=base.mreg_config,
+            keepoldfile=base.keepoldfile,
+            postcommand=base.postcommand,
+            postcommand_timeout=base.postcommand_timeout,
+            # LDIF command options
+            ldif=command_config.ldif,
+            filename=command_config.filename,
+            ignore_size_change=command_config.ignore_size_change,
+            force_check=command_config.force_check,
+            use_saved_data=command_config.use_saved_data,
+        )
