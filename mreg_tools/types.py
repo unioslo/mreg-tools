@@ -7,10 +7,14 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 from enum import IntEnum
 from typing import Any
+from typing import Literal
 from typing import Self
 
 type LDIFEntryValue = str | int | Sequence[str] | Sequence[int]
 type LDIFEntry = Mapping[str, str | int | Sequence[str] | Sequence[int]]
+
+
+LogLevelNames = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 class LogLevel(IntEnum):
@@ -25,7 +29,9 @@ class LogLevel(IntEnum):
     @classmethod
     def _missing_(cls, value: Any) -> Self:
         """Case-insensitive name lookup when normal lookup fails."""
+        from mreg_tools.exceptions import MregToolsError  # noqa: PLC0415
+
         try:
             return cls[value.upper()]
         except Exception:
-            raise ValueError(f"Invalid log level: {value}") from None
+            raise MregToolsError(f"Invalid log level: {value}") from None
