@@ -1,7 +1,9 @@
-# Rich markup styles for the CLI
+"""Rich markup styles and themes for CLI output and help text."""
+
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import final
 
 from rich.theme import Theme
 from typer.rich_utils import STYLE_OPTION
@@ -64,32 +66,6 @@ class TableStyle(StrEnum):
     HEADER = "table_header"
 
 
-####################
-# Colors
-####################
-# Colors should be used to colorize output and help define styles,
-# but they should not contain any formatting (e.g. bold, italic, `x` on `y`, etc.)
-####################
-
-
-# TODO: refactor and define info, success, warning, error as STYLES, not COLORS.
-#       Having multiple members with the same value is bad
-class Color(StrEnum):
-    INFO = "default"
-    SUCCESS = "green"
-    WARNING = "yellow"
-    ERROR = "red"
-    YELLOW = "yellow"
-    GREEN = "green"
-    RED = "red"
-    MAGENTA = "magenta"
-    CYAN = "cyan"
-    BLUE = "blue"
-
-    def __call__(self, message: str) -> str:
-        return f"[{self.value}]{message}[/]"
-
-
 class CliTheme:
     """Theme for styling CLI output and help text."""
 
@@ -110,6 +86,7 @@ class CliTheme:
     # tables
     TABLE_HEADER: str = "bold green"
 
+    @final
     @classmethod
     def as_rich_theme(cls) -> Theme:
         """Return a Rich Theme object based on the class attributes."""
