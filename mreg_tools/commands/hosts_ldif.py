@@ -6,19 +6,24 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
+from typing import Any
+from typing import Callable
 from typing import Generic
 from typing import NamedTuple
 from typing import NotRequired
+from typing import Protocol
 from typing import TypedDict
 from typing import TypeVar
 from typing import final
 from typing import override
 
+import structlog.stdlib
 import typer
 from mreg_api.models import Host
 from mreg_api.models import Network
 from mreg_api.models import NetworkPolicy
 from mreg_api.models import Srv
+from mreg_api.types import QueryParams
 
 from mreg_tools import common
 from mreg_tools.app import app
@@ -31,8 +36,7 @@ from mreg_tools.config import Config
 from mreg_tools.config import HostsLdifConfig
 from mreg_tools.logs import configure_logging
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logger = structlog.stdlib.get_logger(command="hosts-ldif")
 
 
 class HostLDIFEntry(TypedDict):
@@ -149,20 +153,47 @@ def get_host_vlan_ids(host: Host, networks: list[Network]) -> list[int]:
 T = TypeVar("T")
 
 
+class GetFunc(Protocol, Generic[T]):
+    """Function to fetch all results for a given MREG resource type."""
+
+    def __call__(
+        self, params: QueryParams | None = None, limit: int | None = None
+    ) -> list[T]: ...
+
+
+class FirstFunc(Protocol, Generic[T]):
+    """Function to get the first item for a given MREG resource type."""
+
+    def __call__(self) -> T | None: ...
+
+
+class CountFunc(Protocol, Generic[T]):
+    """Function to get the count of items for a given MREG resource type."""
+
+    def __call__(self) -> int: ...
+
+
 @dataclass
 class LdifData(Generic[T]):
     name: str
     type: type[T]
-    default: T
-    _data: T | None = None
+    default: list[T]
+    first_func: FirstFunc[T]
+    get_func: GetFunc[T]
+    count_func: CountFunc[T]
+    _data: list[T] | None = None
 
     @property
-    def data(self) -> T:
+    def data(self) -> list[T]:
         return self._data if self._data is not None else self.default
 
     @data.setter
-    def data(self, value: T) -> None:
+    def data(self, value: list[T]) -> None:
         self._data = value
+
+    def fetch(self) -> None:
+        """Fetch data from MREG using the provided get_func. Populates `data` in-place."""
+        self.data = self.get_func(limit=None, params={"ordering": "name"})
 
     def dump(self, directory: Path) -> None:
         """Dump data to a JSON file.
@@ -170,7 +201,7 @@ class LdifData(Generic[T]):
         Args:
             directory (Path): Directory to dump the JSON file to.
         """
-        dump_json(self.data, self.type, self.filename_json(directory))
+        dump_json(self.data, list[self.type], self.filename_json(directory))
 
     def load(self, directory: Path) -> None:
         """Load data from a JSON file.
@@ -178,7 +209,9 @@ class LdifData(Generic[T]):
         Args:
             directory (Path): Directory to load from.
         """
-        self.data = load_json(self.type, self.filename_json(directory)) or self.default
+        self.data = (
+            load_json(list[self.type], self.filename_json(directory)) or self.default
+        )
 
     def filename_json(self, directory: Path) -> Path:
         """Get the filename for the JSON file."""
@@ -186,9 +219,9 @@ class LdifData(Generic[T]):
 
 
 class LdifDataStorage(NamedTuple):
-    hosts: LdifData[list[Host]]
-    networks: LdifData[list[Network]]
-    srvs: LdifData[list[Srv]]
+    hosts: LdifData[Host]
+    networks: LdifData[Network]
+    srvs: LdifData[Srv]
 
     def dump(self, directory: Path) -> None:
         """Dump fetched data to JSON files."""
@@ -215,10 +248,36 @@ class HostsLDIF(LDIFBase):
         super().__init__(config)
         # Storage of fetched data
         self.data = LdifDataStorage(
-            hosts=LdifData(name="hosts", type=list[Host], default=[]),
-            networks=LdifData(name="networks", type=list[Network], default=[]),
-            srvs=LdifData(name="srvs", type=list[Srv], default=[]),
+            hosts=LdifData(
+                name="hosts",
+                type=Host,
+                default=[],
+                get_func=self.client.host.get_list,
+                first_func=self.client.host.get_first,
+                count_func=self.client.host.get_count,
+            ),
+            networks=LdifData(
+                name="networks",
+                type=Network,
+                default=[],
+                get_func=self.client.network.get_list,
+                first_func=self.client.network.get_first,
+                count_func=self.client.network.get_count,
+            ),
+            srvs=LdifData(
+                name="srvs",
+                type=Srv,
+                default=[],
+                get_func=self.client.srv.get_list,
+                first_func=self.client.srv.get_first,
+                count_func=self.client.srv.get_count,
+            ),
         )
+
+    @property
+    @override
+    def command(self) -> str:
+        return "hosts-ldif"
 
     @property
     @override
@@ -234,17 +293,13 @@ class HostsLDIF(LDIFBase):
             # We don't currently have a way to signal which parts of the
             # data should be fetched and which should be loaded from disk
             # in `should_fetch()`.
-            self.data.networks.data = self.client.network.get_list(
-                limit=None, params={"ordering": "name"}
-            )
-            self.data.srvs.data = self.client.srv.get_list(
-                limit=None, params={"ordering": "name"}
-            )
-            self.data.hosts.data = self.client.host.get_list(
-                limit=None, params={"ordering": "name"}
-            )
+            for ldif_data in self.data:
+                logger.debug("Fetching %s from MREG", ldif_data.name)
+                ldif_data.fetch()
             self.data.dump(self.config.workdir)
+
         self.create_ldif()
+
         if self.config.postcommand:
             common.utils.run_postcommand(
                 self.config.postcommand,
@@ -255,44 +310,43 @@ class HostsLDIF(LDIFBase):
         """Determine if data should be fetched from MREG."""
         # No saved data, _must_ fetch
         if not self.data.has_data():
-            logger.debug("No saved data, fetching new data.")
+            logger.debug("No saved data.")
             return True
 
         # Force use saved data
         if self.config.use_saved_data and self.data.has_data():
+            logger.debug("Using saved MREG data.")
             return False
 
         # Force fetch
         if self.config.force_check:
+            logger.debug("Force check enabled, fetching new data.")
             return True
 
         # Saved data exists, check if it is up to date
-        # TODO: refactor first and count checks. Can we do it dynamically, so that
-        # we don't have to hardcode it for each data type?
-        if self.data.hosts.data:
-            first_host = self.client.host.get_first()
-            if first_host != self.data.hosts.data[0]:
-                logger.debug("First host has changed, fetching new data.")
+        for ldif_data in self.data:
+            logger.debug("Checking %s", ldif_data.name)
+
+            # Explicit check to ensure we don't get index errors
+            if not ldif_data.data:
+                logger.debug("No saved data for %s.", ldif_data.name)
                 return True
-            elif self.client.host.get_count() != len(self.data.hosts.data):
-                logger.debug("Number of hosts has changed, fetching new data.")
+
+            first_item = ldif_data.first_func()
+            if first_item != ldif_data.data[0]:
+                logger.debug(
+                    "First item for %s has changed.",
+                    ldif_data.name,
+                )
                 return True
-        elif self.data.networks.data:
-            first_network = self.client.network.get_first()
-            if first_network != self.data.networks.data[0]:
-                logger.debug("First network has changed, fetching new data.")
+
+            if ldif_data.count_func() != len(ldif_data.data):
+                logger.debug(
+                    "Number of items for %s has changed.",
+                    ldif_data.name,
+                )
                 return True
-            elif self.client.network.get_count() != len(self.data.networks.data):
-                logger.debug("Number of networks has changed, fetching new data.")
-                return True
-        elif self.data.srvs.data:
-            first_srv = self.client.srv.get_first()
-            if first_srv != self.data.srvs.data[0]:
-                logger.debug("First srv has changed, fetching new data.")
-                return True
-            elif self.client.srv.get_count() != len(self.data.srvs.data):
-                logger.debug("Number of srvs has changed, fetching new data.")
-                return True
+
         return False
 
     def _name_to_base_entry(self, name: str) -> HostLDIFEntry:
