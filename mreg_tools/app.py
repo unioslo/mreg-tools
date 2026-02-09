@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Protocol
 
 import typer
-from mreg_api import MregClient
 from rich.console import RenderableType
 from rich.status import Status
 from rich.style import StyleType
@@ -35,7 +34,6 @@ class StatusCallable(Protocol):
 
 class MregToolsApp(typer.Typer):
     _config: Config | None = None  # Set by main callback
-    _client: MregClient | None = None
 
     @property
     def status(self) -> StatusCallable:
@@ -43,9 +41,22 @@ class MregToolsApp(typer.Typer):
         return err_console.status
 
     def set_config(self, config: Config) -> None:
+        """Set the global config object.
+
+        Args:
+            config (Config): Config object to set.
+        """
         self._config = config
 
     def get_config(self) -> Config:
+        """Get the global config object.
+
+        Raises:
+            RuntimeError: Config has not been set yet.
+
+        Returns:
+            Config: The global config object.
+        """
         if self._config is None:
             raise RuntimeError("Config not set")
         return self._config
