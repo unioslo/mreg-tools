@@ -25,31 +25,42 @@ class LDIFBase(ABC):
 
     Commands that produce LDIF output should define classes that
     inherit from this class.
-
-    Config access pattern:
-        self.config         - Resolved config with defaults applied (ResolvedLdifCommandConfig).
-                              Use for: workdir, destdir, encoding, mode, ldif, filename, etc.
-        self.command_config - Raw command config section (e.g. HostsLdifConfig).
-                              Use for: command-specific fields like force_check, zone, postcommand.
-        self._app_config    - Full application config (Config). Internal use only.
-                              Use for: logging config, other non-command settings.
     """
 
     def __init__(self, app_config: Config) -> None:
         self._app_config: Config = app_config
         self.client: MregClient = get_client_and_login(self.config.mreg_config)
         self._create_dirs()
-
-    @cached_property
-    def config(self) -> ResolvedLdifCommandConfig:
-        """Resolved config with defaults applied. Primary config access point."""
-        return self._app_config.resolve_ldif(self.command_config)
+        self._check_valid_ldif_config()
 
     @property
     @abstractmethod
     def command_config(self) -> LDIFCommandConfig:
         """Raw command config section (e.g. HostsLdifConfig)."""
         ...
+
+    # NOTE: should we replace this with some sort of private attr on command configs?
+    #       if so, how to implenent? Pydantic PrivateAttr? How do we ensure that is
+    #       set on all subclasses?
+    @property
+    @abstractmethod
+    def command(self) -> str:
+        """Command name, used for logging, etc."""
+        ...
+
+    def _check_valid_ldif_config(self) -> None:
+        """Check if the LDIF configuration is valid."""
+        for attr in ["cn", "dn", "objectClass", "ou"]:
+            if not getattr(self.config.ldif, attr):
+                exit_err(
+                    f"[{self.command}.ldif] {attr} not set in the configuration.",
+                    escape=True,
+                )
+
+    @cached_property
+    def config(self) -> ResolvedLdifCommandConfig:
+        """Resolved config with defaults applied. Primary config access point."""
+        return self._app_config.resolve_ldif(self.command_config)
 
     def _create_dirs(self) -> None:
         """Create necessary directories for LDIF output."""
