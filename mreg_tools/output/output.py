@@ -9,6 +9,7 @@ from typing import NoReturn
 import structlog.stdlib
 import typer
 from rich.console import Console
+from rich.markup import escape as escape_markup
 from rich.markup import render
 
 from mreg_tools.output.style import DEFAULT_THEME
@@ -133,13 +134,18 @@ def exit_ok(message: str | None = None, code: int | None = 0, **kwargs: Any) -> 
     raise SystemExit(code if code is not None else 0)
 
 
-def exit_err(message: str, code: int | None = 1, **kwargs: Any) -> NoReturn:
+def exit_err(
+    message: str, code: int | None = 1, escape: bool = False, **kwargs: Any
+) -> NoReturn:
     """Log a message with ERROR level and exit with the given code (default: 1).
 
     Args:
         message (str): Message to print.
+        escape (bool): Whether to escape the message for rich markup. Defaults to False.
         code (int, optional): Exit code. Defaults to 1.
         **kwargs: Additional keyword arguments to pass to the extra dict.
     """
+    if escape:
+        message = escape_markup(message)
     error(message, **kwargs)
     raise SystemExit(code if code is not None else 1)
