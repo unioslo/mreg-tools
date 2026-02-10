@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from mreg_api import MregClient
+from mreg_api.exceptions import LoginFailedError
 
 from mreg_tools.config import MregConfig
-from mreg_tools.output import err_console
+from mreg_tools.output import exit_err
 
 
 def _get_client(config: MregConfig) -> MregClient:
@@ -21,8 +22,8 @@ def get_client_and_login(config: MregConfig) -> MregClient:
     client = _get_client(config)
     try:
         client.login(username=config.username, password=config.get_password())
+    except LoginFailedError as e:
+        exit_err(f"Failed to log in to MREG: {e}")
     except Exception as e:
-        # TODO: use error printing function to print this!
-        err_console.print(f"ERROR: Failed to log in to MREG: {e}")
-        raise
+        exit_err(f"Failed to log in to MREG: {e}", exc_info=True)
     return client
