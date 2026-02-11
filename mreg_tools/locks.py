@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+import structlog.stdlib
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -10,7 +10,7 @@ import fasteners
 
 from mreg_tools.exceptions import LockFileInUseError
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 
 @contextmanager
@@ -23,17 +23,17 @@ def lock_file(
         lockfile: Path to the file to lock.
         timeout: Timeout in seconds to wait for the lock.
     """
+    log = logger.bind(lockfile=str(lockfile), timeout=timeout)
     lock = fasteners.InterProcessLock(lockfile)
     try:
         # Do not wait for the lock if another process is running the same command.
         # NOTE: each command should have its own lock file
         if lock.acquire(blocking=False, timeout=timeout):
-            logger.info("Acquired lock on %s", str(lockfile))
+            log.info("Acquired lock")
             yield
         else:
-            logger.error(
-                "Another process is running the same command. Lock file: %s",
-                str(lockfile),
+            log.error(
+                "Another process is running the same command. Could not acquire lock."
             )
             raise LockFileInUseError(f"Could not acquire lock on {lockfile}")
 
@@ -41,10 +41,10 @@ def lock_file(
         try:
             lock.release()
             lockfile.unlink(missing_ok=True)
-            logger.info("Released lock on %s", str(lockfile))
+            log.info("Released lock")
         # Trying to release a lock that isn't acquired raises a threading.ThreadError
         # which kind of makes no sense.
         except threading.ThreadError:
             pass
         except Exception:
-            logger.exception("Unknown error releasing lock on %s", str(lockfile))
+            log.exception("Unknown error releasing lock", lockfile=str(lockfile))
