@@ -1,19 +1,9 @@
 from __future__ import annotations
 
 import io
-import logging
-import sys
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Annotated
-from typing import Any
-from typing import Callable
-from typing import Generic
-from typing import NamedTuple
 from typing import NotRequired
-from typing import Protocol
 from typing import TypedDict
-from typing import TypeVar
 from typing import final
 from typing import override
 
@@ -23,14 +13,13 @@ from mreg_api.models import Host
 from mreg_api.models import Network
 from mreg_api.models import NetworkPolicy
 from mreg_api.models import Srv
-from mreg_api.types import QueryParams
 
 from mreg_tools import common
 from mreg_tools.app import app
 from mreg_tools.common.LDIFutils import LDIFBase
+from mreg_tools.common.LDIFutils import LdifData
+from mreg_tools.common.LDIFutils import LdifDataStorageBase
 from mreg_tools.common.LDIFutils import entry_string
-from mreg_tools.common.utils import dump_json
-from mreg_tools.common.utils import load_json
 from mreg_tools.common.utils import write_file
 from mreg_tools.config import Config
 from mreg_tools.config import HostsLdifConfig
@@ -150,104 +139,24 @@ def get_host_vlan_ids(host: Host, networks: list[Network]) -> list[int]:
     return sorted(ids)
 
 
-T = TypeVar("T")
-
-
-class GetFunc(Protocol, Generic[T]):
-    """Function to fetch all results for a given MREG resource type."""
-
-    def __call__(
-        self, params: QueryParams | None = None, limit: int | None = None
-    ) -> list[T]: ...
-
-
-class FirstFunc(Protocol, Generic[T]):
-    """Function to get the first item for a given MREG resource type."""
-
-    def __call__(self) -> T | None: ...
-
-
-class CountFunc(Protocol, Generic[T]):
-    """Function to get the count of items for a given MREG resource type."""
-
-    def __call__(self) -> int: ...
-
-
-@dataclass
-class LdifData(Generic[T]):
-    name: str
-    type: type[T]
-    default: list[T]
-    first_func: FirstFunc[T]
-    get_func: GetFunc[T]
-    count_func: CountFunc[T]
-    _data: list[T] | None = None
-
-    @property
-    def data(self) -> list[T]:
-        return self._data if self._data is not None else self.default
-
-    @data.setter
-    def data(self, value: list[T]) -> None:
-        self._data = value
-
-    def fetch(self) -> None:
-        """Fetch data from MREG using the provided get_func. Populates `data` in-place."""
-        self.data = self.get_func(limit=None, params={"ordering": "name"})
-
-    def dump(self, directory: Path) -> None:
-        """Dump data to a JSON file.
-
-        Args:
-            directory (Path): Directory to dump the JSON file to.
-        """
-        dump_json(self.data, list[self.type], self.filename_json(directory))
-
-    def load(self, directory: Path) -> None:
-        """Load data from a JSON file.
-
-        Args:
-            directory (Path): Directory to load from.
-        """
-        self.data = (
-            load_json(list[self.type], self.filename_json(directory)) or self.default
-        )
-
-    def filename_json(self, directory: Path) -> Path:
-        """Get the filename for the JSON file."""
-        return directory / f"{self.name}.json"
-
-
-class LdifDataStorage(NamedTuple):
-    hosts: LdifData[Host]
-    networks: LdifData[Network]
-    srvs: LdifData[Srv]
-
-    def dump(self, directory: Path) -> None:
-        """Dump fetched data to JSON files."""
-        for ldif_data in self:
-            ldif_data.dump(directory)
-
-    def load(self, directory: Path) -> None:
-        """Load fetched data from JSON files."""
-        for ldif_data in self:
-            ldif_data.load(directory)
-
-    def has_data(self) -> bool:
-        """Return True if _all_ of the data files have data."""
-        return all(bool(ldif_data.data) for ldif_data in self)
-
-    def __bool__(self) -> bool:
-        """Return True if _ALL_ of the data files have data."""
-        return self.has_data()
+class HostsLdifDataStorage(LdifDataStorageBase):
+    def __init__(
+        self,
+        hosts: LdifData[Host],
+        networks: LdifData[Network],
+        srvs: LdifData[Srv],
+    ) -> None:
+        self.hosts = hosts
+        self.networks = networks
+        self.srvs = srvs
 
 
 @final
-class HostsLDIF(LDIFBase):
+class HostsLDIF(LDIFBase[HostsLdifDataStorage]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         # Storage of fetched data
-        self.data = LdifDataStorage(
+        self.data = HostsLdifDataStorage(
             hosts=LdifData(
                 name="hosts",
                 type=Host,
@@ -276,6 +185,11 @@ class HostsLDIF(LDIFBase):
 
     @property
     @override
+    def required_ldif_fields(self) -> set[str]:
+        return {"dn", "cn", "objectClass", "description"}
+
+    @property
+    @override
     def command(self) -> str:
         return "hosts-ldif"
 
@@ -283,71 +197,6 @@ class HostsLDIF(LDIFBase):
     @override
     def command_config(self) -> HostsLdifConfig:
         return self._app_config.hosts_ldif
-
-    def run(self) -> None:
-        self.data.load(self.config.workdir)
-        if self.should_fetch():
-            # TODO: implement saving/loading of partial data for debugging ONLY.
-            # Currently not enabled, as we don't have the necessary heuristics
-            # to determine if a hybrid approach is appropriate.
-            # We don't currently have a way to signal which parts of the
-            # data should be fetched and which should be loaded from disk
-            # in `should_fetch()`.
-            for ldif_data in self.data:
-                logger.debug("Fetching %s from MREG", ldif_data.name)
-                ldif_data.fetch()
-            self.data.dump(self.config.workdir)
-
-        self.create_ldif()
-
-        if self.config.postcommand:
-            common.utils.run_postcommand(
-                self.config.postcommand,
-                self.config.postcommand_timeout,
-            )
-
-    def should_fetch(self) -> bool:
-        """Determine if data should be fetched from MREG."""
-        # No saved data, _must_ fetch
-        if not self.data.has_data():
-            logger.debug("No saved data.")
-            return True
-
-        # Force use saved data
-        if self.config.use_saved_data and self.data.has_data():
-            logger.debug("Using saved MREG data.")
-            return False
-
-        # Force fetch
-        if self.config.force_check:
-            logger.debug("Force check enabled, fetching new data.")
-            return True
-
-        # Saved data exists, check if it is up to date
-        for ldif_data in self.data:
-            logger.debug("Checking %s", ldif_data.name)
-
-            # Explicit check to ensure we don't get index errors
-            if not ldif_data.data:
-                logger.debug("No saved data for %s.", ldif_data.name)
-                return True
-
-            first_item = ldif_data.first_func()
-            if first_item != ldif_data.data[0]:
-                logger.debug(
-                    "First item for %s has changed.",
-                    ldif_data.name,
-                )
-                return True
-
-            if ldif_data.count_func() != len(ldif_data.data):
-                logger.debug(
-                    "Number of items for %s has changed.",
-                    ldif_data.name,
-                )
-                return True
-
-        return False
 
     def _name_to_base_entry(self, name: str) -> HostLDIFEntry:
         """Create a base LDIF entry for a host name."""
@@ -389,7 +238,8 @@ class HostsLDIF(LDIFBase):
 
         return entry
 
-    def create_ldif(self) -> None:
+    @override
+    def create_ldif(self) -> io.StringIO:
         """Create the LDIF file from fetched data."""
         # Collect the LDIF entries
         entries: list[HostLDIFEntry] = []
@@ -412,17 +262,8 @@ class HostsLDIF(LDIFBase):
         for entry in entries:
             ldifs.write(entry_string(entry))
 
-        # Write the LDIF to disk
-        write_file(
-            self.config.destdir / self.config.filename,
-            ldifs,
-            workdir=self.config.workdir,
-            encoding=self.config.encoding,
-            ignore_size_change=self.config.ignore_size_change,
-            keepoldfile=self.config.keepoldfile,
-            max_line_change_percent=self.config.max_line_change_percent,
-            mode=self.config.mode,
-        )
+        return ldifs
+
 
 
 @app.command("hosts-ldif", help="Export hosts from mreg as a ldif.")

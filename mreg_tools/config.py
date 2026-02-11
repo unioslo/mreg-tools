@@ -83,6 +83,9 @@ class MregConfig(BaseModel):
     """MREG API connection settings."""
 
     url: str = Field(default="https://mreg.uio.no", description="MREG API URL")
+    domain: str = Field(
+        default="uio.no", description="Domain for hostnames (used in some commands)"
+    )
     username: str = Field(default="mreguser", description="MREG username")
     timeout: int = Field(default=20, description="API timeout in seconds")
     passwordfile: ResolvedPath | None = Field(
@@ -176,9 +179,12 @@ class LdifSettings(BaseModel):
     dn: str = Field(default="", description="Distinguished name for the LDIF entry")
     cn: str = Field(default="", description="Common name")
     description: str = Field(default="", description="Description")
-    ou: str | None = Field(default=None, description="Organizational unit")
+    ou: str = Field(default="", description="Organizational unit")
     # TODO: add normalization for objectClass as str or list[str]
     objectClass: list[str] = Field(default=["top"], description="Object class(es)")
+    make_head_entry: bool = Field(
+        default=False, description="Create head entry in LDIF", exclude=True
+    )
 
     @field_validator("objectClass", mode="before")
     @classmethod
@@ -283,24 +289,16 @@ class LDIFCommandConfig(CommandConfig):
     )
 
 
-class HostgroupLdifConfig(LDIFCommandConfig):
+class HostGroupLdifConfig(LDIFCommandConfig):
     """Configuration for hostgroup-ldif command."""
 
     filename: str = Field(
         default="hostgroups.ldif",
         description="Output filename",
     )
-    domain: str | None = Field(
-        default=None,
-        description="If hostname ends with this domain, also add entry without domain",
-    )
     ipv6networks: bool = Field(
         default=False,
         description="Include IPv6 networks",
-    )
-    make_head_entry: bool = Field(
-        default=True,
-        description="Create head entry in LDIF",
     )
 
 
@@ -354,7 +352,7 @@ class DefaultConfig(BaseModel):
         default=DEFAULT_LOGDIR,
         description="Log directory for the command",
     )
-    encoding: str = Field(
+    encoding: str = Field(  # NOTE: add Literal for this?
         default="utf-8",
         description="File encoding for output files",
     )
@@ -385,6 +383,9 @@ class LoggingHandlerConfig(BaseModel):
     )
 
 
+# TODO: remove separate file logging config and merge into main LoggingConfig.
+#       We have no need for console logging, as we already manage output via
+#       the output functions defined in output.py that also log to file.
 class FileLoggingConfig(LoggingHandlerConfig):
     """File logging configuration section."""
 
@@ -477,7 +478,7 @@ class ResolvedCommandConfig(BaseModel):
     encoding: str
     mode: int | None
     max_line_change_percent: int | None
-    mreg_config: MregConfig
+    mreg: MregConfig
     keepoldfile: bool
     postcommand: list[str] | None
     postcommand_timeout: int | float | None
@@ -524,8 +525,8 @@ class Config(BaseSettings):
         default_factory=GetZonefilesConfig,
         validation_alias=AliasChoices("get-zonefiles", "get_zonefiles"),
     )
-    hostgroup_ldif: HostgroupLdifConfig = Field(
-        default_factory=HostgroupLdifConfig,
+    hostgroup_ldif: HostGroupLdifConfig = Field(
+        default_factory=HostGroupLdifConfig,
         validation_alias=AliasChoices("hostgroup-ldif", "hostgroup_ldif"),
     )
     hosts_ldif: HostsLdifConfig = Field(
@@ -593,7 +594,7 @@ class Config(BaseSettings):
                 if command_config.max_line_change_percent is not None
                 else self.default.max_line_change_percent
             ),
-            mreg_config=command_config.mreg or self.mreg,
+            mreg=command_config.mreg or self.mreg,
             keepoldfile=(
                 command_config.keepoldfile
                 if command_config.keepoldfile is not None
@@ -616,7 +617,7 @@ class Config(BaseSettings):
             encoding=base.encoding,
             mode=base.mode,
             max_line_change_percent=base.max_line_change_percent,
-            mreg_config=base.mreg_config,
+            mreg=base.mreg,
             keepoldfile=base.keepoldfile,
             postcommand=base.postcommand,
             postcommand_timeout=base.postcommand_timeout,
