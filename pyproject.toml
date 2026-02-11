@@ -51,12 +51,16 @@ Repository = 'https://github.com/unioslo/mreg-tools/'
 
 [dependency-groups]
 dev = [
+    "inline-snapshot>=0.31.1",
     "pytest>=9.0.2",
     "ruff",
 ]
 
+[tool.inline-snapshot]
+format-command = "ruff check --fix-only --stdin-filename {filename} | ruff format --stdin-filename {filename}"
+
 [tool.pyright]
-reportUnusedCallResult = "information"
+reportUnusedCallResult = "none"
 reportImportCycles = "information"
 
 [tool.ruff]
