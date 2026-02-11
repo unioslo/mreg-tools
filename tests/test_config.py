@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import pytest
+from inline_snapshot import snapshot
 
 from mreg_tools.config import ConsoleLoggingConfig
 from mreg_tools.config import FileLoggingConfig
@@ -52,6 +53,49 @@ def test_ldif_settings_as_head_entry(input_value: Any, expected: list[str]):
     settings = LdifSettings(**kwargs)
     head_entry = settings.as_head_entry()
     assert head_entry["objectClass"] == expected
+
+
+def test_ldif_settings_as_head_entry_snapshot() -> None:
+    """Test LdifSettings.as_head_entry() for objectClass field."""
+    settings = LdifSettings(
+        dn="cn=hostgroups,dc=example,dc=com",
+        cn="hostgroups",
+        objectClass=["top", "groupOfNames"],
+        ou="example",
+        description="This is a description",
+    )
+    assert settings.as_head_entry() == snapshot(
+        {
+            "dn": "cn=hostgroups,dc=example,dc=com",
+            "cn": "hostgroups",
+            "description": "This is a description",
+            "ou": "example",
+            "objectClass": ["top", "groupOfNames"],
+        }
+    )
+
+    # Omitting a value (cn)
+    settings = LdifSettings(
+        dn="cn=hostgroups,dc=example,dc=com",
+        objectClass=["top", "groupOfNames"],
+        ou="example",
+        description="This is a description",
+    )
+    assert settings.as_head_entry() == snapshot(
+        {
+            "dn": "cn=hostgroups,dc=example,dc=com",
+            "cn": "",
+            "description": "This is a description",
+            "ou": "example",
+            "objectClass": ["top", "groupOfNames"],
+        }
+    )
+
+    # Omitting all values
+    settings = LdifSettings()
+    assert settings.as_head_entry() == snapshot(
+        {"dn": "", "cn": "", "description": "", "ou": "", "objectClass": ["top"]}
+    )
 
 
 @pytest.mark.parametrize(
