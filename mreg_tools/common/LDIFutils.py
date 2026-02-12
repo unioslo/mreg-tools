@@ -19,6 +19,7 @@ from typing import TypeVar
 import structlog.stdlib
 from mreg_api import MregClient
 from mreg_api.types import QueryParams
+from structlog.stdlib import BoundLogger
 
 from mreg_tools.api import get_client_and_login
 from mreg_tools.common.utils import dump_json
@@ -49,21 +50,13 @@ class LDIFBase(ABC, Generic[DataT]):
     def __init__(self, app_config: Config) -> None:
         self._app_config: Config = app_config
         self.client: MregClient = get_client_and_login(self.config.mreg)
+        self.logger: BoundLogger = logger.bind(command=self.command)
+
+        # Setup
         self._create_dirs()
-        self._check_valid_ldif_config()
 
         # Abstract, must be set by subclass or command logic before calling .create_ldif()
         self.data: DataT
-
-    @property
-    @abstractmethod
-    def required_ldif_fields(self) -> set[str]:
-        """Set of required LDIF fields that must be configured for the command.
-
-        I.e. if a command requires 'cn' and 'objectClass' fields,
-        this should return `{'cn', 'objectClass'}`.
-        """
-        ...
 
     @property
     @abstractmethod
@@ -88,38 +81,37 @@ class LDIFBase(ABC, Generic[DataT]):
     def should_fetch(self) -> bool:
         """Determine if data should be fetched from MREG."""
         # No saved data, _must_ fetch
-        log = logger.bind(command=self.command)
         if not self.data.has_data():
-            log.debug("No saved data")
+            self.logger.debug("No saved data")
             return True
 
         # Force use saved data
-        if self.config.use_saved_data and self.data.has_data():
-            log.debug("Using saved MREG data")
+        if self.config.use_saved_data:
+            self.logger.debug("Using saved MREG data")
             return False
 
         # Force fetch
         if self.config.force_check:
-            log.debug("Force check enabled, fetching new data")
+            self.logger.debug("Force check enabled, fetching new data")
             return True
 
         # Saved data exists, check if it is up to date
         for ldif_data in self.data:
-            log = log.bind(ldif_data=ldif_data.name)
-            log.debug("Checking")
+            logger = self.logger.bind(ldif_data=ldif_data.name)
+            logger.debug("Checking")
 
             # Explicit check to ensure we don't get index errors
             if not ldif_data.data:
-                log.debug("No saved data")
+                logger.debug("No saved data")
                 return True
 
             first_item = ldif_data.first_func()
             if first_item != ldif_data.data[0]:
-                log.debug("First item has changed")
+                logger.debug("First item has changed")
                 return True
 
             if ldif_data.count_func() != len(ldif_data.data):
-                log.debug("Number of items has changed")
+                logger.debug("Number of items has changed")
                 return True
 
         return False
@@ -156,15 +148,6 @@ class LDIFBase(ABC, Generic[DataT]):
                 self.config.postcommand,
                 self.config.postcommand_timeout,
             )
-
-    def _check_valid_ldif_config(self) -> None:
-        """Check if the LDIF configuration is valid."""
-        for attr in self.required_ldif_fields:
-            if not getattr(self.config.ldif, attr):
-                exit_err(
-                    f"[{self.command}.ldif] {attr} not set in the configuration.",
-                    escape=True,
-                )
 
     @cached_property
     def config(self) -> ResolvedLdifCommandConfig:
