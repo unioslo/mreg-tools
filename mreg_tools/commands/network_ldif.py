@@ -1,128 +1,173 @@
 from __future__ import annotations
 
-import configparser
 import io
-import ipaddress
-import os
 from typing import Annotated
+from typing import Final
+from typing import NotRequired
+from typing import TypedDict
+from typing import final
+from typing import override
 
-import fasteners
-import requests
+import structlog.stdlib
 import typer
+from mreg_api.models import Network
 
-from mreg_tools import common
 from mreg_tools.app import app
+from mreg_tools.common.LDIFutils import LDIFBase
+from mreg_tools.common.LDIFutils import LdifData
+from mreg_tools.common.LDIFutils import LdifDataStorageBase
 from mreg_tools.common.LDIFutils import entry_string
-from mreg_tools.common.LDIFutils import make_head_entry
-from mreg_tools.common.utils import error
+from mreg_tools.config import Config
+from mreg_tools.config import NetworkLdifConfig
+
+COMMAND_NAME: Final[str] = "network-ldif"
+
+# Logger for the module independent of the LDIFBase logger
+logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
-def create_ldif(networks, ignore_size_change):
-    f = io.StringIO()
-    dn = cfg["ldif"]["dn"]
-    head_entry = make_head_entry(cfg)
-    f.write(entry_string(head_entry))
-    range_attrs = {
-        4: ("uioIpAddressRangeStart", "uioIpAddressRangeEnd"),
-        6: ("uioIpV6AddressRangeStart", "uioIpV6AddressRangeEnd"),
-    }
-    for network, i in networks.items():
-        rangeStart, rangeEnd = range_attrs[network.version]
-        cn = i["network"]
-        entry = {
-            "dn": f"cn={cn},{dn}",
-            "cn": cn,
-            "objectClass": ("top", "ipNetwork", "uioIpNetwork"),
-            "description": i["description"],
-            "ipNetworkNumber": str(network.network_address),
-            "ipNetmaskNumber": str(network.netmask),
-            "uioNetworkCategory": sorted(i["category"].split(" ")),
-            "uioNetworkLocation": sorted(i["location"].split(" ")),
-            rangeStart: int(network.network_address),
-            rangeEnd: int(network.broadcast_address),
-        }
-        if i["vlan"] is not None:
-            entry["uioVlanID"] = i["vlan"]
-        f.write(entry_string(entry))
-    try:
-        common.utils.write_file(
-            cfg["default"]["filename"], f, ignore_size_change=ignore_size_change
+class NetworkLdifEntry(TypedDict):
+    """Network LDIF entry structure."""
+
+    dn: str
+    cn: str
+    objectClass: list[str]
+    description: str | None
+    ipNetworkNumber: str
+    ipNetmaskNumber: str
+    uioNetworkCategory: list[str]
+    uioNetworkLocation: list[str]
+    uioIpAddressRangeStart: NotRequired[int]
+    uioIpAddressRangeEnd: NotRequired[int]
+    uioIpV6AddressRangeStart: NotRequired[int]
+    uioIpV6AddressRangeEnd: NotRequired[int]
+    uioVlanID: NotRequired[int]
+
+
+class NetworkLdifDataStorage(LdifDataStorageBase):
+    def __init__(self, networks: LdifData[Network]) -> None:
+        self.networks = networks
+
+
+@final
+class NetworkLDIF(LDIFBase[NetworkLdifDataStorage]):
+    def __init__(self, app_config: Config) -> None:
+        super().__init__(app_config)
+        self.data = NetworkLdifDataStorage(
+            networks=LdifData(
+                name="networks",
+                type=Network,
+                default=[],
+                first_func=self.client.network.get_first,
+                get_func=self.client.network.get_list,
+                count_func=self.client.network.get_count,
+            )
         )
-    except common.utils.TooManyLineChanges as e:
-        error(e.message)
 
+    @property
+    @override
+    def command(self) -> str:
+        return "network-ldif"
 
-@common.utils.timing
-def get_networks(url, skipipv6):
-    ret = conn.get_list(url + "?page_size=1000")
-    networks = {}
-    for i in ret:
-        network = ipaddress.ip_network(i["network"])
-        if not skipipv6 and network.version == 6:
-            continue
-        networks[network] = i
-    return networks
+    @property
+    @override
+    def command_config(self) -> NetworkLdifConfig:
+        return self._app_config.network_ldif
 
+    @override
+    def create_ldif(self) -> io.StringIO:
+        """Create the LDIF file from fetched data."""
+        # Collect the LDIF entries
+        entries: list[NetworkLdifEntry] = []
+        for network in self.data.networks.data:
+            entry = self.network_to_ldif_entry(network)
+            entries.append(entry)
 
-@common.utils.timing
-def network_ldif(args, url):
-    for i in (
-        "destdir",
-        "workdir",
-    ):
-        common.utils.mkdir(cfg["default"][i])
+        # Construct the string to write to the LDIF file
+        ldifs = io.StringIO()
+        if self.config.ldif.make_head_entry:
+            ldifs.write(entry_string(self.get_head_entry()))
+        for entry in entries:
+            ldifs.write(entry_string(entry))
+        return ldifs
 
-    lockfile = os.path.join(cfg["default"]["workdir"], "lockfile")
-    lock = fasteners.InterProcessLock(lockfile)
-    if lock.acquire(blocking=False):
-        if common.utils.updated_entries(conn, url, "networks.json") or args.force_check:
-            networks = get_networks(url, cfg["mreg"].getboolean("ipv6networks"))
-            create_ldif(networks, args.ignore_size_change)
-            if "postcommand" in cfg["default"]:
-                common.utils.run_postcommand()
+    def network_to_ldif_entry(self, network: Network) -> NetworkLdifEntry:
+        """Generate an LDIF entry for a network.
+
+        Args:
+            network (Network): Network object.
+
+        Returns:
+            NetworkLdifEntry: LDIF entry dictionary for the network.
+        """
+        entry: NetworkLdifEntry = {
+            "dn": f"cn={network.network},{self.config.ldif.dn}",
+            "cn": network.network,
+            "objectClass": ["top", "ipNetwork", "uioIpNetwork"],
+            "description": network.description,
+            "ipNetworkNumber": str(network.network_address),
+            "ipNetmaskNumber": str(network.ip_network.netmask),
+            "uioNetworkCategory": sorted(network.category.split(" ")),
+            "uioNetworkLocation": sorted(network.location.split(" ")),
+        }
+        if network.ip_network.version == 4:
+            entry["uioIpAddressRangeStart"] = int(network.network_address)
+            entry["uioIpAddressRangeEnd"] = int(network.broadcast_address)
         else:
-            logger.info("No updated networks")
-        lock.release()
-    else:
-        logger.warning(f"Could not lock on {lockfile}")
+            entry["uioIpV6AddressRangeStart"] = int(network.network_address)
+            entry["uioIpV6AddressRangeEnd"] = int(network.broadcast_address)
+        if network.vlan is not None:
+            entry["uioVlanID"] = network.vlan
+        return entry
 
 
-@app.command("network-ldif", help="Export network from mreg as a ldif.")
+@app.command(COMMAND_NAME, help="Export network from mreg as a ldif.")
 def main(
     config: Annotated[
         str | None,
-        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+        typer.Option("--config", help="(DEPRECATED) path to config file", hidden=True),
     ] = None,
     force_check: Annotated[
-        bool,
+        bool | None,
         typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
-    ] = False,
+    ] = None,
     ignore_size_change: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--ignore-size-change",
-            help="ignore size changes",
+            help="ignore size changes when writing the LDIF file",
         ),
-    ] = False,
+    ] = None,
+    use_saved_data: Annotated[
+        bool | None,
+        typer.Option(
+            "--use-saved-data",
+            help="force use saved data from previous runs. Takes precedence over --force",
+        ),
+    ] = None,
+    filename: Annotated[
+        str | None,
+        typer.Option(
+            "--filename",
+            help="output filename for the ldif file",
+        ),
+    ] = None,
 ):
-    global cfg, conn, logger
+    # Get config and add overrides from command line
+    conf = app.get_config()
+    if force_check is not None:
+        conf.network_ldif.force_check = force_check
+    if ignore_size_change is not None:
+        conf.network_ldif.ignore_size_change = ignore_size_change
+    if use_saved_data is not None:
+        conf.network_ldif.use_saved_data = use_saved_data
+    if filename is not None:
+        conf.network_ldif.filename = filename
 
-    cfg = configparser.ConfigParser()
-    cfg.optionxform = str
-    cfg.read(config or "network-ldif.conf")
-
-    for i in ("default", "mreg", "ldif"):
-        if i not in cfg:
-            error(f"Missing section {i} in config file", os.EX_CONFIG)
-
-    if "filename" not in cfg["default"]:
-        error("Missing 'filename' in default section in config file", os.EX_CONFIG)
-
-    common.utils.cfg = cfg
-    logger = common.utils.getLogger()
-    conn = common.connection.Connection(cfg["mreg"])
-    url = requests.compat.urljoin(cfg["mreg"]["url"], "/api/v1/networks/")
-    network_ldif(args, url)
+    ldif = NetworkLDIF(conf)
+    with app.lock(ldif.config.workdir, COMMAND_NAME):
+        ldif.run()
+    ldif.create_ldif()
 
 
 if __name__ == "__main__":
