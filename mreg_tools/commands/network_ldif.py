@@ -13,10 +13,10 @@ import typer
 from mreg_api.models import Network
 
 from mreg_tools.app import app
-from mreg_tools.common.LDIFutils import LDIFBase
-from mreg_tools.common.LDIFutils import LdifData
-from mreg_tools.common.LDIFutils import LdifDataStorageBase
-from mreg_tools.common.LDIFutils import entry_string
+from mreg_tools.common.base import MregData
+from mreg_tools.common.base import MregDataStorage
+from mreg_tools.common.ldif import LDIFBase
+from mreg_tools.common.ldif import entry_string
 from mreg_tools.config import Config
 from mreg_tools.config import NetworkLdifConfig
 
@@ -44,17 +44,17 @@ class NetworkLdifEntry(TypedDict):
     uioVlanID: NotRequired[int]
 
 
-class NetworkLdifDataStorage(LdifDataStorageBase):
-    def __init__(self, networks: LdifData[Network]) -> None:
+class NetworkDataStorage(MregDataStorage):
+    def __init__(self, networks: MregData[Network]) -> None:
         self.networks = networks
 
 
 @final
-class NetworkLDIF(LDIFBase[NetworkLdifDataStorage]):
+class NetworkLDIF(LDIFBase[NetworkDataStorage]):
     def __init__(self, app_config: Config) -> None:
         super().__init__(app_config)
-        self.data = NetworkLdifDataStorage(
-            networks=LdifData(
+        self.data = NetworkDataStorage(
+            networks=MregData(
                 name="networks",
                 type=Network,
                 default=[],
@@ -164,10 +164,9 @@ def main(
     if filename is not None:
         conf.network_ldif.filename = filename
 
-    ldif = NetworkLDIF(conf)
-    with app.lock(ldif.config.workdir, COMMAND_NAME):
-        ldif.run()
-    ldif.create_ldif()
+    cmd = NetworkLDIF(conf)
+    with app.lock(cmd.config.workdir, COMMAND_NAME):
+        cmd()
 
 
 if __name__ == "__main__":

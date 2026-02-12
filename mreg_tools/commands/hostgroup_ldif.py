@@ -12,15 +12,14 @@ import structlog.stdlib
 import typer
 from mreg_api.models import HostGroup
 
-from mreg_tools import common
 from mreg_tools.app import app
-from mreg_tools.common.LDIFutils import LDIFBase
-from mreg_tools.common.LDIFutils import LdifData
-from mreg_tools.common.LDIFutils import LdifDataStorageBase
-from mreg_tools.common.LDIFutils import entry_string
+from mreg_tools.common.base import MregData
+from mreg_tools.common.base import MregDataStorage
+from mreg_tools.common.ldif import LDIFBase
+from mreg_tools.common.ldif import entry_string
+from mreg_tools.common.ldif import to_iso646_60
 from mreg_tools.config import Config
 from mreg_tools.config import HostGroupLdifConfig
-from mreg_tools.logs import configure_logging
 
 COMMAND_NAME: Final[str] = "hostgroup-ldif"
 
@@ -39,21 +38,21 @@ class HostGroupLdifEntry(TypedDict):
     nisNetgroupTriple: NotRequired[list[str]]
 
 
-class HostGroupLdifDataStorage(LdifDataStorageBase):
+class HostGroupDataStorage(MregDataStorage):
     """Storage for fetched host group data."""
 
-    def __init__(self, hostgroups: LdifData[HostGroup]) -> None:
+    def __init__(self, hostgroups: MregData[HostGroup]) -> None:
         self.hostgroups = hostgroups
 
 
 @final
-class HostGroupLDIF(LDIFBase[HostGroupLdifDataStorage]):
+class HostGroupLDIF(LDIFBase[HostGroupDataStorage]):
     """Host group LDIF generator."""
 
     def __init__(self, app_config: Config) -> None:
         super().__init__(app_config)
-        self.data = HostGroupLdifDataStorage(
-            hostgroups=LdifData(
+        self.data = HostGroupDataStorage(
+            hostgroups=MregData(
                 name="hostgroups",
                 type=HostGroup,
                 default=[],
@@ -98,7 +97,7 @@ class HostGroupLDIF(LDIFBase[HostGroupLdifDataStorage]):
         # ordering of fields, so we maintain parity with the old script
         if hostgroup.description:
             if self.config.encoding == "ascii":
-                description = common.LDIFutils.to_iso646_60(hostgroup.description)
+                description = to_iso646_60(hostgroup.description)
             else:
                 description = hostgroup.description
         else:
@@ -169,11 +168,9 @@ def main(
     if filename is not None:
         conf.hostgroup_ldif.filename = filename
 
-    configure_logging(conf)
-    ldif = HostGroupLDIF(conf)
-    with app.lock(ldif.config.workdir, "hosts_ldif"):
-        ldif.run()
-    ldif.create_ldif()
+    cmd = HostGroupLDIF(conf)
+    with app.lock(cmd.config.workdir, COMMAND_NAME):
+        cmd()
 
 
 if __name__ == "__main__":

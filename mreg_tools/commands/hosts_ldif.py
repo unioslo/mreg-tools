@@ -16,13 +16,12 @@ from mreg_api.models import NetworkPolicy
 from mreg_api.models import Srv
 
 from mreg_tools.app import app
-from mreg_tools.common.LDIFutils import LDIFBase
-from mreg_tools.common.LDIFutils import LdifData
-from mreg_tools.common.LDIFutils import LdifDataStorageBase
-from mreg_tools.common.LDIFutils import entry_string
+from mreg_tools.common.base import MregData
+from mreg_tools.common.base import MregDataStorage
+from mreg_tools.common.ldif import LDIFBase
+from mreg_tools.common.ldif import entry_string
 from mreg_tools.config import Config
 from mreg_tools.config import HostsLdifConfig
-from mreg_tools.logs import configure_logging
 
 COMMAND_NAME: Final[str] = "hosts-ldif"
 
@@ -141,12 +140,12 @@ def get_host_vlan_ids(host: Host, networks: list[Network]) -> list[int]:
     return sorted(ids)
 
 
-class HostsLdifDataStorage(LdifDataStorageBase):
+class HostsDataStorage(MregDataStorage):
     def __init__(
         self,
-        hosts: LdifData[Host],
-        networks: LdifData[Network],
-        srvs: LdifData[Srv],
+        hosts: MregData[Host],
+        networks: MregData[Network],
+        srvs: MregData[Srv],
     ) -> None:
         self.hosts = hosts
         self.networks = networks
@@ -154,12 +153,12 @@ class HostsLdifDataStorage(LdifDataStorageBase):
 
 
 @final
-class HostsLDIF(LDIFBase[HostsLdifDataStorage]):
+class HostsLDIF(LDIFBase[HostsDataStorage]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         # Storage of fetched data
-        self.data = HostsLdifDataStorage(
-            hosts=LdifData(
+        self.data = HostsDataStorage(
+            hosts=MregData(
                 name="hosts",
                 type=Host,
                 default=[],
@@ -167,7 +166,7 @@ class HostsLDIF(LDIFBase[HostsLdifDataStorage]):
                 first_func=self.client.host.get_first,
                 count_func=self.client.host.get_count,
             ),
-            networks=LdifData(
+            networks=MregData(
                 name="networks",
                 type=Network,
                 default=[],
@@ -175,7 +174,7 @@ class HostsLDIF(LDIFBase[HostsLdifDataStorage]):
                 first_func=self.client.network.get_first,
                 count_func=self.client.network.get_count,
             ),
-            srvs=LdifData(
+            srvs=MregData(
                 name="srvs",
                 type=Srv,
                 default=[],
@@ -305,12 +304,9 @@ def main(
     if filename is not None:
         conf.hosts_ldif.filename = filename
 
-    h = HostsLDIF(conf)
-    # TODO: move this into some sort of base command class
-    # which resolves config, creates directories, and sets up logging
-    configure_logging(conf)
-    with app.lock(h.config.workdir, "hosts_ldif"):
-        h.run()
+    cmd = HostsLDIF(conf)
+    with app.lock(cmd.config.workdir, COMMAND_NAME):
+        cmd()
 
     # TODO: limit to a specific zone if configured
 

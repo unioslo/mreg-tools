@@ -133,6 +133,15 @@ class CommandConfig(BaseModel):
         default=None,
         description="Timeout for postcommand in seconds (None means no timeout)",
     )
+    filename: str = Field(
+        # default specified by subclasses
+        default="output_file",  # placeholder default, should be overridden by subclasses
+        description="Output filename",
+    )
+    ignore_size_change: bool = Field(
+        default=False,
+        description="Ignore size changes when writing the output file",
+    )
 
     # Optional overrides for main config:
 
@@ -162,6 +171,18 @@ class CommandConfig(BaseModel):
     keepoldfile: bool | None = Field(
         default=None,
         description="Keep a backup of the old file when writing new files",
+    )
+
+    ## Data fetching
+    force_check: bool = Field(
+        default=False,
+        description="Always fetch new data from API, ignoring saved data",
+    )
+    use_saved_data: bool = Field(
+        default=False,
+        description=(
+            "Force use saved data from previous runs. Takes precedence over force_check"
+        ),
     )
 
     @field_validator("postcommand", mode="before")
@@ -218,7 +239,7 @@ class GetHostinfoConfig(CommandConfig):
     """Configuration for get-hostinfo command."""
 
 
-class GetHostpolicyConfig(CommandConfig):
+class GetHostPolicyConfig(CommandConfig):
     """Configuration for get-hostpolicy command."""
 
 
@@ -273,22 +294,6 @@ class LDIFCommandConfig(CommandConfig):
     ldif: LdifSettings = Field(
         default_factory=LdifSettings,
         description="LDIF settings",
-    )
-    filename: str = Field(
-        # default specified by subclasses
-        description="Output filename",
-    )
-    ignore_size_change: bool = Field(
-        default=False,
-        description="Ignore size changes when writing the LDIF file",
-    )
-    force_check: bool = Field(
-        default=False,
-        description="Always fetch new data from API, ignoring saved data",
-    )
-    use_saved_data: bool = Field(
-        default=False,
-        description="Force use saved data from previous runs. Takes precedence over force_check",
     )
 
 
@@ -468,16 +473,16 @@ class ResolvedCommandConfig(BaseModel):
     keepoldfile: bool
     postcommand: list[str] | None
     postcommand_timeout: int | float | None
+    force_check: bool
+    use_saved_data: bool
+    filename: str
+    ignore_size_change: bool
 
 
 class ResolvedLdifCommandConfig(ResolvedCommandConfig):
     """Resolved configuration for LDIF export commands."""
 
     ldif: LdifSettings
-    filename: str
-    ignore_size_change: bool
-    force_check: bool
-    use_saved_data: bool
 
 
 class Config(BaseSettings):
@@ -500,11 +505,15 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("get-dhcphosts", "get_dhcphosts"),
     )
     get_hostinfo: GetHostinfoConfig = Field(
-        default_factory=GetHostinfoConfig,
+        default=GetHostinfoConfig(
+            filename="hosts.csv",
+        ),
         validation_alias=AliasChoices("get-hostinfo", "get_hostinfo"),
     )
-    get_hostpolicy: GetHostpolicyConfig = Field(
-        default_factory=GetHostpolicyConfig,
+    get_hostpolicy: GetHostPolicyConfig = Field(
+        default=GetHostPolicyConfig(
+            encoding="latin-1",  # NOTE: should this really be the default?
+        ),
         validation_alias=AliasChoices("get-hostpolicy", "get_hostpolicy"),
     )
     get_zonefiles: GetZonefilesConfig = Field(
@@ -616,8 +625,13 @@ class Config(BaseSettings):
                 if command_config.keepoldfile is not None
                 else self.default.keepoldfile
             ),
+            # Command-specific options
             postcommand=command_config.postcommand,
             postcommand_timeout=command_config.postcommand_timeout,
+            force_check=command_config.force_check,
+            use_saved_data=command_config.use_saved_data,
+            filename=command_config.filename,
+            ignore_size_change=command_config.ignore_size_change,
         )
 
     def resolve_ldif(
@@ -637,10 +651,10 @@ class Config(BaseSettings):
             keepoldfile=base.keepoldfile,
             postcommand=base.postcommand,
             postcommand_timeout=base.postcommand_timeout,
+            force_check=base.force_check,
+            use_saved_data=base.use_saved_data,
+            filename=base.filename,
+            ignore_size_change=base.ignore_size_change,
             # LDIF command options
             ldif=command_config.ldif,
-            filename=command_config.filename,
-            ignore_size_change=command_config.ignore_size_change,
-            force_check=command_config.force_check,
-            use_saved_data=command_config.use_saved_data,
         )
