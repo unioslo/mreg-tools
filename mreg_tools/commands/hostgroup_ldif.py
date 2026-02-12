@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import io
 from typing import Annotated
+from typing import Final
 from typing import NotRequired
 from typing import TypedDict
+from typing import final
 from typing import override
 
+import structlog.stdlib
 import typer
 from mreg_api.models import HostGroup
 
@@ -18,6 +21,11 @@ from mreg_tools.common.LDIFutils import entry_string
 from mreg_tools.config import Config
 from mreg_tools.config import HostGroupLdifConfig
 from mreg_tools.logs import configure_logging
+
+COMMAND_NAME: Final[str] = "hostgroup-ldif"
+
+# Logger for the module independent of the LDIFBase logger
+logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
 class HostGroupLdifEntry(TypedDict):
@@ -38,6 +46,7 @@ class HostGroupLdifDataStorage(LdifDataStorageBase):
         self.hostgroups = hostgroups
 
 
+@final
 class HostGroupLDIF(LDIFBase[HostGroupLdifDataStorage]):
     """Host group LDIF generator."""
 
@@ -56,11 +65,6 @@ class HostGroupLDIF(LDIFBase[HostGroupLdifDataStorage]):
         self.domain: str = self.config.mreg.domain
         if self.domain and not self.domain.startswith("."):
             self.domain = f".{self.domain}"
-
-    @property
-    @override
-    def required_ldif_fields(self) -> set[str]:
-        return {"dn", "objectClass"}
 
     @property
     @override

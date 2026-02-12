@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from typing import Annotated
+from typing import Final
 from typing import NotRequired
 from typing import TypedDict
 from typing import final
@@ -14,18 +15,19 @@ from mreg_api.models import Network
 from mreg_api.models import NetworkPolicy
 from mreg_api.models import Srv
 
-from mreg_tools import common
 from mreg_tools.app import app
 from mreg_tools.common.LDIFutils import LDIFBase
 from mreg_tools.common.LDIFutils import LdifData
 from mreg_tools.common.LDIFutils import LdifDataStorageBase
 from mreg_tools.common.LDIFutils import entry_string
-from mreg_tools.common.utils import write_file
 from mreg_tools.config import Config
 from mreg_tools.config import HostsLdifConfig
 from mreg_tools.logs import configure_logging
 
-logger = structlog.stdlib.get_logger(command="hosts-ldif")
+COMMAND_NAME: Final[str] = "hosts-ldif"
+
+# Logger for the module independent of the LDIFBase logger
+logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
 class HostLDIFEntry(TypedDict):
@@ -101,10 +103,10 @@ def get_host_network_policy_name(host: Host, networks: list[Network]) -> str | N
     elif len(host.communities) > 1:
         host_net_policy = get_isolated_policy_name(policies)
         logger.warning(
-            "Multiple communities found for host %s: %s. Isolating host to policy %s.",
-            host.name,
-            ", ".join(com.community.name for com in host.communities),
-            host_net_policy,
+            "Multiple communities found for host. Isolating host.",
+            host=host.name,
+            communities=[com.community.name for com in host.communities],
+            policy=host_net_policy,
         )
         return host_net_policy
     # Isolate if part of a policy but no community assigned
@@ -185,11 +187,6 @@ class HostsLDIF(LDIFBase[HostsLdifDataStorage]):
 
     @property
     @override
-    def required_ldif_fields(self) -> set[str]:
-        return {"dn", "cn", "objectClass", "description"}
-
-    @property
-    @override
     def command(self) -> str:
         return "hosts-ldif"
 
@@ -228,11 +225,11 @@ class HostsLDIF(LDIFBase[HostsLdifDataStorage]):
         if vlan_ids := get_host_vlan_ids(host, self.data.networks.data):
             # Only support one VLAN ID for now!
             if len(vlan_ids) > 1:
-                logger.warning(
-                    "Multiple VLAN IDs for host %s: %s. Using the first one: %s",
-                    host.name,
-                    vlan_ids,
-                    vlan_ids[0],
+                self.logger.warning(
+                    "Multiple VLAN IDs for host. Using first ID.",
+                    host=host.name,
+                    vlan_ids=vlan_ids,
+                    first_vlan_id=vlan_ids[0],
                 )
             entry["uioVlanID"] = vlan_ids[:1]
 
@@ -265,8 +262,7 @@ class HostsLDIF(LDIFBase[HostsLdifDataStorage]):
         return ldifs
 
 
-
-@app.command("hosts-ldif", help="Export hosts from mreg as a ldif.")
+@app.command(COMMAND_NAME, help="Export hosts from mreg as a ldif.")
 def main(
     config: Annotated[
         str | None,
