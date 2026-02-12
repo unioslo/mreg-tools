@@ -18,7 +18,7 @@ from mreg_tools.types import LogLevelNames
 # This imports the commands from each module and registers them with the
 # typer app. If this import is removed, no commands will be registered
 # and the CLI will not work.
-from mreg_tools import commands
+from mreg_tools import commands  # noqa: F401  # pyright: ignore[reportUnusedImport]
 # fmt: on
 
 
