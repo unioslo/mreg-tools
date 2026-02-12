@@ -180,11 +180,8 @@ class LdifSettings(BaseModel):
     cn: str = Field(default="", description="Common name")
     description: str = Field(default="", description="Description")
     ou: str = Field(default="", description="Organizational unit")
-    # TODO: add normalization for objectClass as str or list[str]
     objectClass: list[str] = Field(default=["top"], description="Object class(es)")
-    make_head_entry: bool = Field(
-        default=False, description="Create head entry in LDIF", exclude=True
-    )
+    make_head_entry: bool = Field(default=True, description="Create head entry in LDIF")
 
     @field_validator("objectClass", mode="before")
     @classmethod
@@ -199,7 +196,13 @@ class LdifSettings(BaseModel):
 
     def as_head_entry(self) -> dict[str, LDIFEntryValue]:
         """Return the LDIF head entry as a dictionary of LDIF entry primitive values."""
-        return self.model_dump(mode="json")
+        return {
+            "dn": self.dn,
+            "cn": self.cn,
+            "description": self.description,
+            "ou": self.ou,
+            "objectClass": self.objectClass,
+        }
 
 
 class GetDhcphostsConfig(CommandConfig):
@@ -292,23 +295,10 @@ class LDIFCommandConfig(CommandConfig):
 class HostGroupLdifConfig(LDIFCommandConfig):
     """Configuration for hostgroup-ldif command."""
 
-    filename: str = Field(
-        default="hostgroups.ldif",
-        description="Output filename",
-    )
-    ipv6networks: bool = Field(
-        default=False,
-        description="Include IPv6 networks",
-    )
-
 
 class HostsLdifConfig(LDIFCommandConfig):
     """Configuration for hosts-ldif command."""
 
-    filename: str = Field(
-        default="hosts.ldif",
-        description="Output filename",
-    )
     zone: str | None = Field(
         default=None,
         description="Limit to specific zone",
@@ -327,12 +317,8 @@ class NetworkImportConfig(CommandConfig):
 class NetworkLdifConfig(LDIFCommandConfig):
     """Configuration for network-ldif command."""
 
-    filename: str = Field(
-        default="networks.ldif",
-        description="Output filename",
-    )
     ipv6networks: bool = Field(
-        default=False,
+        default=True,
         description="Include IPv6 networks",
     )
 
@@ -526,11 +512,27 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("get-zonefiles", "get_zonefiles"),
     )
     hostgroup_ldif: HostGroupLdifConfig = Field(
-        default_factory=HostGroupLdifConfig,
+        default=HostGroupLdifConfig(
+            filename="hostgroups.ldif",
+            ldif=LdifSettings(
+                dn="cn=netgroups,cn=system,dc=uio,dc=no",
+                objectClass=["top", "nisNetGroup", "uioHostgroup"],
+                make_head_entry=False,
+            ),
+        ),
         validation_alias=AliasChoices("hostgroup-ldif", "hostgroup_ldif"),
     )
     hosts_ldif: HostsLdifConfig = Field(
-        default_factory=HostsLdifConfig,
+        default=HostsLdifConfig(
+            filename="hosts.ldif",
+            ldif=LdifSettings(
+                dn="cn=hosts,cn=system,dc=uio,dc=no",
+                cn="hosts",
+                description="Supplementary host-info not present in DNS",
+                objectClass=["top", "uioUntypedObject"],
+                make_head_entry=True,
+            ),
+        ),
         validation_alias=AliasChoices("hosts-ldif", "hosts_ldif"),
     )
     network_import: NetworkImportConfig = Field(
@@ -538,13 +540,27 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("network-import", "network_import"),
     )
     network_ldif: NetworkLdifConfig = Field(
-        default_factory=NetworkLdifConfig,
+        default=NetworkLdifConfig(
+            filename="subnets.ldif",
+            ldif=LdifSettings(
+                # NOTE: these values are used to create the head entry
+                # apart from DN, which is used as a prefix for all entries.
+                dn="cn=subnets,cn=system,dc=uio,dc=no",
+                cn="subnets",
+                description="IP networks at UiO",
+                objectClass=["top", "uioUntypedObject"],
+                make_head_entry=True,
+            ),
+        ),
         validation_alias=AliasChoices("network-ldif", "network_ldif"),
     )
 
     model_config = SettingsConfigDict(
         toml_file=["config.toml"],
         extra="ignore",
+        # Allows us to specify defaults for certain fields,
+        # while still allowing them to be overridden by the config file.
+        nested_model_default_partial_update=True,
     )
 
     @override
