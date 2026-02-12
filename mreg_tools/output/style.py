@@ -52,7 +52,7 @@ class CodeStyle(StrEnum):
 
 
 class TextStyle(StrEnum):
-    """Names of styles for non-code text"""
+    """Names of styles for non-code text."""
 
     WARNING = "warning"
     ERROR = "error"
