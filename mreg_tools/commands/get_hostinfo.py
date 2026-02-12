@@ -1,102 +1,127 @@
 from __future__ import annotations
 
-import configparser
 import io
-import os
 from typing import Annotated
+from typing import Final
+from typing import final
+from typing import override
 
-import fasteners
-import requests
+import structlog.stdlib
 import typer
+from mreg_api.models import Host
 
-from mreg_tools import common
 from mreg_tools.app import app
-from mreg_tools.common.utils import error
+from mreg_tools.common.base import CommandBase
+from mreg_tools.common.base import MregData
+from mreg_tools.common.base import MregDataStorage
+from mreg_tools.config import Config
+from mreg_tools.config import GetHostinfoConfig
+
+COMMAND_NAME: Final[str] = "get-hostinfo"
+logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
-def write_file(filename, f):
-    filename = os.path.join(cfg["default"]["destdir"], filename)
-    common.utils.write_file(filename, f)
+class HostDataStorage(MregDataStorage):
+    """Storage for fetched host data."""
+
+    def __init__(self, hosts: MregData[Host]) -> None:
+        self.hosts = hosts
 
 
-def create_hosts(host_data):
-    hosts = io.StringIO()
+@final
+class GetHostInfo(CommandBase[HostDataStorage]):
+    """get-hostinfo command class."""
 
-    for host in host_data:
-        # Handle new/old contact fields.
-        # We don't know which MREG server version we are running against.
-        contacts = host.get("contacts")
-        if contacts:
-            emails = " ".join(c.get("email", "") for c in contacts)
-        else:
-            emails = host.get("contact") or ""
-        # TODO: Host comment could be usefull, but will need escaping
-        hosts.write("{};{}\n".format(host["name"], emails))
+    def __init__(self, app_config: Config):
+        super().__init__(app_config)
+        self.data = HostDataStorage(
+            hosts=MregData(
+                name="hosts",
+                type=Host,
+                default=[],
+                first_func=self.client.host.get_first,
+                get_func=self.client.host.get_list,
+                count_func=self.client.host.get_count,
+            )
+        )
 
-    write_file("hosts.csv", hosts)
+    @property
+    @override
+    def command(self) -> str:
+        return COMMAND_NAME
+
+    @property
+    @override
+    def command_config(self) -> GetHostinfoConfig:
+        return self._app_config.get_hostinfo
+
+    @override
+    def run(self) -> None:
+        self.create_hosts_csv(self.data.hosts.data)
+
+    def create_hosts_csv(self, hosts: list[Host]) -> None:
+        contents = io.StringIO()  # file-like string object
+        for host in hosts:
+            contents.write(self.host_to_csv_string(host))
+        # TODO: validation that the file is correctly formatted and valid CSV?
+        self.write(contents)
+
+    # NOTE: Ported as-is. Separator cannot be configured
+    def host_to_csv_string(self, host: Host) -> str:
+        """Generate a CSV string for a host.
+
+        Args:
+            host (Host): Host object.
+
+        Returns:
+            str:
+        """
+        emails = " ".join(host.contact_emails)
+        return "{};{}\n".format(host.name, emails)
 
 
-@common.utils.timing
-def get_hosts(url):
-    return conn.get_list(url + "?page_size=1000")
-
-
-@common.utils.timing
-def dump_hostinfo(force):
-    for i in (
-        "destdir",
-        "workdir",
-    ):
-        common.utils.mkdir(cfg["default"][i])
-
-    hosts_url = requests.compat.urljoin(cfg["mreg"]["url"], "/api/v1/hosts/")
-
-    lockfile = os.path.join(cfg["default"]["workdir"], "lockfile")
-    lock = fasteners.InterProcessLock(lockfile)
-    if lock.acquire(blocking=False):
-        updated = False
-        if common.utils.updated_entries(conn, hosts_url, "hosts.json") or force:
-            hosts = get_hosts(hosts_url)
-            create_hosts(hosts)
-            updated = True
-
-        if updated and "postcommand" in cfg["default"]:
-            common.utils.run_postcommand()
-        else:
-            logger.info("No updated hosts")
-        lock.release()
-    else:
-        logger.warning(f"Could not lock on {lockfile}")
-
-
-@app.command("get-hostinfo", help="Export host info from mreg as a textfiles.")
+@app.command(COMMAND_NAME, help="Export host info from mreg as a textfiles.")
 def main(
-    config: Annotated[
-        str | None,
-        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    force_check: Annotated[
+        bool | None,
+        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
     ] = None,
-    force: Annotated[
-        bool,
-        typer.Option("--force", help="force update"),
-    ] = False,
+    ignore_size_change: Annotated[
+        bool | None,
+        typer.Option(
+            "--ignore-size-change",
+            help="ignore size changes when writing the LDIF file",
+        ),
+    ] = None,
+    use_saved_data: Annotated[
+        bool | None,
+        typer.Option(
+            "--use-saved-data",
+            help="force use saved data from previous runs. Takes precedence over --force",
+        ),
+    ] = None,
+    filename: Annotated[
+        str | None,
+        typer.Option(
+            "--filename",
+            help="output filename for the ldif file",
+        ),
+    ] = None,
 ):
-    global cfg, conn, logger
+    # Get config and add overrides from command line
+    conf = app.get_config()
+    if force_check is not None:
+        conf.get_hostinfo.force_check = force_check
+    if ignore_size_change is not None:
+        conf.get_hostinfo.ignore_size_change = ignore_size_change
+    if use_saved_data is not None:
+        conf.get_hostinfo.use_saved_data = use_saved_data
+    if filename is not None:
+        conf.get_hostinfo.filename = filename
 
-    cfg = configparser.ConfigParser()
-    cfg.optionxform = str
-    cfg.read(config or "get-hostinfo.conf")
-
-    for i in (
-        "default",
-        "mreg",
-    ):
-        if i not in cfg:
-            error(f"Missing section {i} in config file", os.EX_CONFIG)
-
-    common.utils.cfg = cfg
-    logger = common.utils.getLogger()
-    conn = common.connection.Connection(cfg["mreg"])
-    dump_hostinfo(force)
+    cmd = GetHostInfo(conf)
+    with app.lock(cmd.config.workdir, COMMAND_NAME):
+        cmd()
 
 
 if __name__ == "__main__":
