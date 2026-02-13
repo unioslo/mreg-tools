@@ -68,63 +68,64 @@ class GetHostPolicy(CommandBase[HostDataStorage]):
 
     @override
     def run(self) -> None:
-        self.create_role_csv(self.data.roles.data)
+        self.create_roles_csv(self.data.roles.data)
+        self.create_policies_csv(self.data.roles.data)
+        self.create_relationships_csv(self.data.roles.data)
         self.create_atom_csv(self.data.atoms.data)
-
-    def role_csv_str(self, role: Role) -> str:
-        """Create a CSV-formatted line for a given role."""
-        return (
-            f"{role.name};{role.description};;"  # NOTE: why double ;;?
-            f"{role.created_at};{','.join(role.atoms)}\n"
-        )
-
-    def role_atom_csv_str(self, role: Role, atom: str) -> str:
-        """Create a CSV-formatted line for a role-atom relationship."""
-        return f"{role.name};hostpol_contains;{atom}\n"
-
-    def host_roles_csv_str(self, host: str, policies: list[str]) -> str:
-        """Create a CSV-formatted line for a host and its associated roles."""
-        return f"{host};{','.join(policies)}\n"
 
     def create_atom_csv(self, atoms: list[Atom]) -> None:
         """Create the CSV file for atoms."""
-        atom_csv = io.StringIO()
+        content = io.StringIO()
         for atom in atoms:
-            atom_csv.write(f"{atom.name};{atom.description};;{atom.created_at}\n")
-        self.write(atom_csv, filename="atoms.csv")
+            content.write(f"{atom.name};{atom.description};;{atom.created_at}\n")
+        self.write(content, filename="atoms.csv")
 
-    def create_role_csv(
+    def create_policies_csv(
         self,
         roles: list[Role],
     ) -> None:
-        """Create the CSV files for roles, hostpolicies, and role:atom relationships."""
-        # String builders for the three CSV files
-        roles_csv = io.StringIO()
-        policies_csv = io.StringIO()
-        relationships_csv = io.StringIO()
+        """Create the CSV file for hosts and their policies (roles)."""
+        content = io.StringIO()
 
         # Map of hosts to their associated roles, used to build hostpolicies.csv
         host_map = defaultdict[str, list[str]](list)
 
+        #
         for role in roles:
-            # Build roles.csv
-            roles_csv.write(self.role_csv_str(role))
-
-            # Build relationships.csv
-            for atom in role.atoms:
-                relationships_csv.write(self.role_atom_csv_str(role, atom))
-
             for host in role.hosts:  # Add role to host map for each host
                 host_map[host].append(role.name)
 
-        # Build hostpolicies.csv
         for host in sorted(host_map):
             role_names = host_map[host]
-            policies_csv.write(self.host_roles_csv_str(host, role_names))
+            content.write(f"{host};{','.join(role_names)}\n")
 
-        self.write(roles_csv, filename="roles.csv")
-        self.write(policies_csv, filename="hostpolicies.csv")
-        self.write(relationships_csv, filename="relationships.csv")
+        self.write(content, filename="hostpolicies.csv")
+
+    def create_relationships_csv(
+        self,
+        roles: list[Role],
+    ) -> None:
+        """Create the CSV file for role-atom relationships."""
+        content = io.StringIO()
+        for role in roles:
+            for atom in role.atoms:
+                content.write(f"{role.name};hostpol_contains;{atom}\n")
+        self.write(content, filename="relationships.csv")
+
+    def create_roles_csv(
+        self,
+        roles: list[Role],
+    ) -> None:
+        """Create the CSV file of all roles and their associated atoms."""
+        content = io.StringIO()
+        for role in roles:
+            content.write(
+                (
+                    f"{role.name};{role.description};;"  # NOTE: why double ;;?
+                    f"{role.created_at};{','.join(role.atoms)}\n"
+                )
+            )
+        self.write(content, filename="roles.csv")
 
 
 @app.command(COMMAND_NAME, help="Export host info from mreg as a textfiles.")
