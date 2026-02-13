@@ -97,7 +97,10 @@ class GetHostPolicy(CommandBase[HostDataStorage]):
 
         for host in sorted(host_map):
             role_names = host_map[host]
-            content.write(f"{host};{','.join(role_names)}\n")
+            # NOTE: There is a period symbol following the host name.
+            #       This behavior is ported from the original script.
+            #       I don't know why it's there.
+            content.write(f"{host}.;{','.join(role_names)}\n")
 
         self.write(content, filename="hostpolicies.csv")
 
