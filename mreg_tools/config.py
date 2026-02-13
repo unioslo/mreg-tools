@@ -150,6 +150,8 @@ class CommandConfig(BaseModel):
     )
 
     # Optional overrides for main config:
+
+    ## mreg
     mreg: MregConfig | None = Field(
         default=None,
         description="MREG settings override for this command",
@@ -181,6 +183,10 @@ class CommandConfig(BaseModel):
     keepoldfile: bool | None = Field(
         default=None,
         description="Keep a backup of the old file when writing new files",
+    )
+    lock: bool | None = Field(
+        default=None,
+        description="Use file locking to prevent concurrent runs of the same command",
     )
 
     @field_validator("postcommand", mode="before")
@@ -357,6 +363,10 @@ class DefaultConfig(BaseModel):
         default=True,
         description="Keep a backup of the old file when writing new files",
     )
+    lock: bool = Field(
+        default=True,
+        description="Use file locking to prevent concurrent runs of the same command",
+    )
 
 
 class LoggingHandlerConfig(BaseModel):
@@ -475,6 +485,7 @@ class ResolvedCommandConfig(BaseModel):
     use_saved_data: bool
     filename: str
     ignore_size_change: bool
+    lock: bool
 
 
 class ResolvedLdifCommandConfig(ResolvedCommandConfig):
@@ -603,6 +614,7 @@ class Config(BaseSettings):
     def resolve(self, command_config: CommandConfig) -> ResolvedCommandConfig:
         """Resolve a CommandConfig by applying overrides to the default config."""
         return ResolvedCommandConfig(
+            # Overrides for main config
             workdir=command_config.workdir or self.default.workdir,
             destdir=command_config.destdir or self.default.destdir,
             logdir=self.default.logdir,  # logdir is not overridden by command config
@@ -622,6 +634,11 @@ class Config(BaseSettings):
                 command_config.keepoldfile
                 if command_config.keepoldfile is not None
                 else self.default.keepoldfile
+            ),
+            lock=(
+                command_config.lock
+                if command_config.lock is not None
+                else self.default.lock
             ),
             # Command-specific options
             postcommand=command_config.postcommand,
@@ -653,6 +670,7 @@ class Config(BaseSettings):
             use_saved_data=base.use_saved_data,
             filename=base.filename,
             ignore_size_change=base.ignore_size_change,
+            lock=base.lock,
             # LDIF command options
             ldif=command_config.ldif,
         )

@@ -5,6 +5,7 @@ import subprocess
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Iterator
+from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -175,8 +176,14 @@ class CommandBase(ABC, Generic[DataT]):
     @final
     def __call__(self) -> None:
         """Entry point for running the command."""
-        lock_path = self.config.workdir / f"{self.command}.lock"
-        with lock_file(lock_path):
+        if self.config.lock:
+            lock_path = self.config.workdir / f"{self.command}.lock"
+            ctx = lock_file(lock_path)
+        else:
+            ctx = nullcontext()
+            self.logger.debug("Locking disabled")
+
+        with ctx:
             self.init_data()
             self.run()
             if self.config.postcommand:
