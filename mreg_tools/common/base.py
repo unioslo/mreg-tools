@@ -172,19 +172,17 @@ class CommandBase(ABC, Generic[DataT]):
         """Main command logic. Assumes data is populated and ready to use."""
         ...
 
+    @final
     def __call__(self) -> None:
         """Entry point for running the command."""
         lock_path = self.config.workdir / f"{self.command}.lock"
         with lock_file(lock_path):
-            self._do_run()
-
-    @final
-    def _do_run(self) -> None:
-        """Populate data and run the command. Should not be overridden by subclasses."""
-        self.init_data()
-        self.run()
-        if self.config.postcommand:
-            self.run_postcommand(self.config.postcommand, self.config.postcommand_timeout)
+            self.init_data()
+            self.run()
+            if self.config.postcommand:
+                self.run_postcommand(
+                    self.config.postcommand, self.config.postcommand_timeout
+                )
 
     # TODO: ensure this method is called before run() and only once!
     def init_data(self) -> None:
