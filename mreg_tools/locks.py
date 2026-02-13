@@ -14,21 +14,18 @@ logger = structlog.stdlib.get_logger(__name__)
 
 
 @contextmanager
-def lock_file(
-    lockfile: Path, timeout: int | float | None = None
-) -> Generator[None, None, None]:
+def lock_file(lockfile: Path) -> Generator[None, None, None]:
     """Context manager for entering/acquiring a file lock.
 
     Args:
         lockfile: Path to the file to lock.
-        timeout: Timeout in seconds to wait for the lock.
     """
-    log = logger.bind(lockfile=str(lockfile), timeout=timeout)
+    log = logger.bind(lockfile=str(lockfile))
     lock = fasteners.InterProcessLock(lockfile)
     try:
         # Do not wait for the lock if another process is running the same command.
         # NOTE: each command should have its own lock file
-        if lock.acquire(blocking=False, timeout=timeout):
+        if lock.acquire(blocking=False):
             log.info("Acquired lock")
             yield
         else:

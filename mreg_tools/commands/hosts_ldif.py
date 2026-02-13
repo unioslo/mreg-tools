@@ -305,8 +305,7 @@ def main(
         conf.hosts_ldif.filename = filename
 
     cmd = HostsLDIF(conf)
-    with app.lock(cmd.config.workdir, COMMAND_NAME):
-        cmd()
+    cmd()
 
     # TODO: limit to a specific zone if configured
 

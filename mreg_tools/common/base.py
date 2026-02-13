@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import io
+import subprocess
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import cached_property
-import io
 from pathlib import Path
-import subprocess
-from typing import Any, final
+from typing import Any
 from typing import Generic
 from typing import Protocol
 from typing import TypeVar
+from typing import final
 
 import structlog.stdlib
 from mreg_api import MregClient
@@ -19,11 +20,13 @@ from mreg_api.types import QueryParams
 from structlog.stdlib import BoundLogger
 
 from mreg_tools.api import get_client_and_login
-from mreg_tools.common.utils import dump_json, write_file
+from mreg_tools.common.utils import dump_json
 from mreg_tools.common.utils import load_json
+from mreg_tools.common.utils import write_file
 from mreg_tools.config import CommandConfig
 from mreg_tools.config import Config
 from mreg_tools.config import ResolvedCommandConfig
+from mreg_tools.locks import lock_file
 from mreg_tools.output import exit_err
 
 logger = structlog.stdlib.get_logger()
@@ -171,7 +174,9 @@ class CommandBase(ABC, Generic[DataT]):
 
     def __call__(self) -> None:
         """Entry point for running the command."""
-        self._do_run()
+        lock_path = self.config.workdir / f"{self.command}.lock"
+        with lock_file(lock_path):
+            self._do_run()
 
     @final
     def _do_run(self) -> None:

@@ -165,8 +165,7 @@ def main(
         conf.network_ldif.filename = filename
 
     cmd = NetworkLDIF(conf)
-    with app.lock(cmd.config.workdir, COMMAND_NAME):
-        cmd()
+    cmd()
 
 
 if __name__ == "__main__":

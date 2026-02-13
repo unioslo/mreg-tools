@@ -167,8 +167,7 @@ def main(
         conf.get_hostpolicy.filename = filename
 
     cmd = GetHostPolicy(conf)
-    with app.lock(cmd.config.workdir, COMMAND_NAME):
-        cmd()
+    cmd()
 
 
 if __name__ == "__main__":

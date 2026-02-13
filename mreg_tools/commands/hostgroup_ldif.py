@@ -169,8 +169,7 @@ def main(
         conf.hostgroup_ldif.filename = filename
 
     cmd = HostGroupLDIF(conf)
-    with app.lock(cmd.config.workdir, COMMAND_NAME):
-        cmd()
+    cmd()
 
 
 if __name__ == "__main__":

@@ -120,8 +120,7 @@ def main(
         conf.get_hostinfo.filename = filename
 
     cmd = GetHostInfo(conf)
-    with app.lock(cmd.config.workdir, COMMAND_NAME):
-        cmd()
+    cmd()
 
 
 if __name__ == "__main__":

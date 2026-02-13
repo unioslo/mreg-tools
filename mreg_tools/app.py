@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Generator
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Protocol
 
 import typer
@@ -11,7 +8,6 @@ from rich.status import Status
 from rich.style import StyleType
 
 from mreg_tools.config import Config
-from mreg_tools.locks import lock_file
 from mreg_tools.output import err_console
 
 
@@ -60,15 +56,6 @@ class MregToolsApp(typer.Typer):
         if self._config is None:
             raise RuntimeError("Config not set")
         return self._config
-
-    @contextmanager
-    def lock(self, workdir: Path, file: str | Path) -> Generator[None, None, None]:
-        """Get a lock for the given file."""
-        file = Path(file).with_suffix(".lock")
-        lock_file_path = workdir / file
-
-        with lock_file(lock_file_path):
-            yield
 
 
 app = MregToolsApp(
