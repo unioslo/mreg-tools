@@ -121,10 +121,6 @@ class MregConfig(BaseModel):
 class CommandConfig(BaseModel):
     """Base configuration for all commands with optional overrides."""
 
-    mreg: MregConfig | None = Field(
-        default=None,
-        description="MREG settings override for this command",
-    )
     postcommand: list[str] | None = Field(
         default=None,
         description="Shell command to run after successful CLI command execution",
@@ -142,8 +138,22 @@ class CommandConfig(BaseModel):
         default=False,
         description="Ignore size changes when writing the output file",
     )
+    force_check: bool = Field(
+        default=False,
+        description="Always fetch new data from API, ignoring saved data",
+    )
+    use_saved_data: bool = Field(
+        default=False,
+        description=(
+            "Force use saved data from previous runs. Takes precedence over force_check"
+        ),
+    )
 
     # Optional overrides for main config:
+    mreg: MregConfig | None = Field(
+        default=None,
+        description="MREG settings override for this command",
+    )
 
     ## Directories
     workdir: ResolvedPath | None = Field(
@@ -171,18 +181,6 @@ class CommandConfig(BaseModel):
     keepoldfile: bool | None = Field(
         default=None,
         description="Keep a backup of the old file when writing new files",
-    )
-
-    ## Data fetching
-    force_check: bool = Field(
-        default=False,
-        description="Always fetch new data from API, ignoring saved data",
-    )
-    use_saved_data: bool = Field(
-        default=False,
-        description=(
-            "Force use saved data from previous runs. Takes precedence over force_check"
-        ),
     )
 
     @field_validator("postcommand", mode="before")
