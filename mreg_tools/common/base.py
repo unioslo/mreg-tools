@@ -152,6 +152,14 @@ class CommandBase(ABC, Generic[DataT]):
         self._updated: bool = False
 
     @property
+    def is_updated(self) -> bool:
+        """True if data was fetched from the API, or if use_saved_data is enabled."""
+        if self.config.use_saved_data:
+            self.logger.debug("Using saved data, treating as updated")
+            return True
+        return self._updated
+
+    @property
     @abstractmethod
     def command_config(self) -> CommandConfig:
         """Raw command config section."""
@@ -186,10 +194,25 @@ class CommandBase(ABC, Generic[DataT]):
         with ctx:
             self.init_data()
             self.run()
+
+            # Determine if post-command should run
             if self.config.postcommand:
-                self.run_postcommand(
-                    self.config.postcommand, self.config.postcommand_timeout
-                )
+                if self.should_run_postcommand():
+                    self.run_postcommand(
+                        self.config.postcommand, self.config.postcommand_timeout
+                    )
+                else:
+                    logger.debug("Skipping post-command. Predicate returned false.")
+            else:
+                logger.debug("No post-command configured.")
+
+    def should_run_postcommand(self) -> bool:
+        """Predicate to determine if postcommand should be run.
+
+        Subclasses can override this method to add additional logic
+        for when to run the postcommand.
+        """
+        return True
 
     # TODO: ensure this method is called before run() and only once!
     def init_data(self) -> None:

@@ -1,175 +1,205 @@
 from __future__ import annotations
 
-import configparser
-import datetime
 import io
-import os
-import sys
-from os.path import join as opj
 from typing import Annotated
+from typing import Final
+from typing import final
+from typing import override
 
-import fasteners
+import structlog.stdlib
 import typer
+from mreg_api.models import ForwardZone
+from mreg_api.models import ReverseZone
+from mreg_api.models import Zone
 
-# replace in python 3.7 with datetime.fromisoformat
-from iso8601 import parse_date
-
-from mreg_tools import common
 from mreg_tools.app import app
-from mreg_tools.common.utils import error
+from mreg_tools.common.base import CommandBase
+from mreg_tools.common.base import MregData
+from mreg_tools.common.base import MregDataStorage
+from mreg_tools.config import Config
+from mreg_tools.config import GetZoneFilesConfig
+from mreg_tools.output import exit_err
+
+COMMAND_NAME: Final[str] = "get-zonefiles"
+logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
-def get_extradata(name):
-    if cfg["default"]["extradir"]:
-        extrafile = opj(cfg["default"]["extradir"], f"{name}_extra")
+class ZoneDataStorage(MregDataStorage):
+    """Storage for fetched host data."""
+
+    def __init__(
+        self, zones: MregData[ForwardZone], reverse_zones: MregData[ReverseZone]
+    ) -> None:
+        self.forward_zones = zones
+        self.reverse_zones = reverse_zones
+
+
+@final
+class GetZoneFiles(CommandBase[ZoneDataStorage]):
+    """get-zonefiles command class."""
+
+    def __init__(self, app_config: Config):
+        super().__init__(app_config)
+        self.data = ZoneDataStorage(
+            zones=MregData(
+                name="forward_zones",
+                type=ForwardZone,
+                default=[],
+                first_func=self.client.forward_zone.get_first,
+                get_func=self.client.forward_zone.get_list,
+                count_func=self.client.forward_zone.get_count,
+            ),
+            reverse_zones=MregData(
+                name="reverse_zones",
+                type=ReverseZone,
+                default=[],
+                first_func=self.client.reverse_zone.get_first,
+                get_func=self.client.reverse_zone.get_list,
+                count_func=self.client.reverse_zone.get_count,
+            ),
+        )
+
+    @override
+    def should_run_postcommand(self) -> bool:
+        """Run post-command if any zones were updated."""
+        return self.is_updated
+
+    @property
+    @override
+    def command(self) -> str:
+        return COMMAND_NAME
+
+    @property
+    @override
+    def command_config(self) -> GetZoneFilesConfig:
+        return self._app_config.get_zonefiles
+
+    @override
+    def run(self) -> None:
+        self.create_zone_files(self.data.forward_zones.data, self.data.reverse_zones.data)
+
+    def create_zone_files(
+        self, forward_zones: list[ForwardZone], reverse_zones: list[ReverseZone]
+    ) -> None:
+        """Create the zone files for all configured zones."""
+        zone_map = {zone.name: zone for zone in forward_zones + reverse_zones}
+
+        def _get_zone_by_name(name: str) -> Zone:
+            if name not in zone_map:
+                exit_err(
+                    f"Zone {name} not found in mreg", command=self.command, zone=name
+                )
+            return zone_map[name]
+
+        # Create zone files for all configured zones
+        for zone in self.command_config.zones:
+            self.create_zone_file(_get_zone_by_name(zone.zone), zone.destname)
+
+        # Create zone files for zones that exclude private address ranges
+        for zone in self.command_config.zones_exclude_private:
+            self.create_zone_file_private(_get_zone_by_name(zone.zone), zone.destname)
+
+    def create_zone_file(self, zone: Zone, destname: str) -> None:
+        """Create the zone file for a given zone."""
+        # NOTE: It's unclear what this warning signifies.
+        #       It has been ported from the old script.
+        if zone.serialno % 100 == 99:
+            self.logger.warning(
+                "zone reached max serial", zone=zone.name, serialno=zone.serialno
+            )
+        self._do_create_zone_file(zone, destname, exclude_private=False)
+
+    def create_zone_file_private(self, zone: Zone, destname: str) -> None:
+        """Create the zone file for a given zone, excluding private address ranges."""
+        self._do_create_zone_file(zone, destname, exclude_private=True)
+
+    def _do_create_zone_file(
+        self, zone: Zone, destname: str, exclude_private: bool
+    ) -> None:
+        """Create the zone file for a given zone, with an option to exclude private address ranges."""
+        contents = io.StringIO()
+
+        zonefile = self.client.zonefile.get_by_name_or_raise(
+            zone.name, exclude_private=exclude_private
+        )
+        contents.write(zonefile)
+
+        # NOTE: we look up data based on the destname, _not_ the name of the zone!
+        if extra := self.get_extra_zone_data(destname):
+            contents.write(extra)
+
+        self.write(contents, filename=destname)
+
+    def get_extra_zone_data(self, name: str) -> str | None:
+        """Get the extra data for a zone from the extradir if it exists."""
+        if not self.command_config.extradir:
+            self.logger.debug("No extra dir configured")
+            return None
+
+        extrafile = self.command_config.extradir / f"{name}_extra"
+        if not extrafile.exists():
+            self.logger.info(f"No extra data file found for {name} at {extrafile}")
+            return None
+
         try:
-            with open(extrafile) as extra:
-                return extra.read()
-        except FileNotFoundError:
-            pass
+            return extrafile.read_text()
         except PermissionError as e:
-            error(f"{e}", code=e.errno)
-    return None
-
-
-def update_zone(zone, name, zoneinfo):
-    jsonfile = opj(cfg["default"]["workdir"], f"{name}.json")
-    old_zoneinfo = common.utils.read_json_file(jsonfile)
-    if old_zoneinfo:
-        old_updated_at = parse_date(old_zoneinfo["updated_at"])
-        old_serial_uat = parse_date(old_zoneinfo["serialno_updated_at"])
-        updated_at = parse_date(zoneinfo["updated_at"])
-        if old_updated_at == updated_at:
-            logger.info(f"{name}: unchanged updated_at: {updated_at}")
-            return False
-        # mreg will only update the serialnumber once per minute, so no need to
-        # rush.  It will attempt to get it, hopefully with a new serialnumber,
-        # in the next run.
-        elif datetime.datetime.now(
-            old_serial_uat.tzinfo
-        ) < old_serial_uat + datetime.timedelta(minutes=1):
-            logger.info(
-                f"{name}: less than a minute since last serial {old_serial_uat}, skipping"
+            self.logger.error(
+                "Permission error reading extra data file",
+                error=e,
+                extrafile=extrafile,
             )
-            return False
-    return True
-
-
-@common.utils.timing
-def get_zone(zone, name, force, filename_without_private_ranges=None):
-    # retrieve the zone as json data, and check the serial number
-    if zone.endswith(".arpa"):
-        path = f"/api/v1/zones/reverse/{zone}"
-    else:
-        path = f"/api/v1/zones/forward/{zone}"
-    zoneinfo = conn.get(path).json()
-    if zoneinfo["serialno"] % 100 == 99:
-        logger.warning(f"{name}: reached max serial (99)")
-
-    # retrieve the zonefile, append extra data, and save it to a file
-    zonefile = conn.get(f"/api/v1/zonefiles/{zone}").text
-    f = io.StringIO()
-    f.write(zonefile)
-    extradata = get_extradata(name)
-    if extradata:
-        f.write(extradata)
-    try:
-        common.utils.write_file(name, f, ignore_size_change=force)
-    except common.utils.TooManyLineChanges as e:
-        logger.error(e.message)
-        print(f"ERROR: {e.message}", file=sys.stderr)
-        return
-
-    # optionally, also export the same zonefile but with private address ranges filtered out
-    if filename_without_private_ranges:
-        zonefile = conn.get(f"/api/v1/zonefiles/{zone}?excludePrivate=yes").text
-        f = io.StringIO()
-        f.write(zonefile)
-        if extradata:
-            f.write(extradata)
-        try:
-            common.utils.write_file(
-                filename_without_private_ranges, f, ignore_size_change=force
+            raise e
+        except Exception as e:
+            self.logger.error(
+                "Error reading extra data file",
+                error=e,
+                extrafile=extrafile,
             )
-        except common.utils.TooManyLineChanges as e:
-            logger.error(e.message)
-            print(f"ERROR: {e.message}", file=sys.stderr)
-            return
-
-    # write the json data with the zone to a file
-    jsonfile = opj(cfg["default"]["workdir"], f"{name}.json")
-    common.utils.write_json_file(jsonfile, zoneinfo)
+            raise e
 
 
-@common.utils.timing
-def get_current_zoneinfo():
-    zoneinfo = dict()
-    for path in ("/api/v1/zones/forward/", "/api/v1/zones/reverse/"):
-        for zone in conn.get_list(path):
-            zoneinfo[zone["name"]] = zone
-    return zoneinfo
-
-
-@common.utils.timing
-def get_zonefiles(force):
-    for i in (
-        "destdir",
-        "workdir",
-    ):
-        common.utils.mkdir(cfg["default"][i])
-
-    lockfile = opj(cfg["default"]["workdir"], "lockfile")
-    lock = fasteners.InterProcessLock(lockfile)
-    if lock.acquire(blocking=False):
-        updated = False
-        allzoneinfo = get_current_zoneinfo()
-        for zone in cfg["zones"]:
-            if zone not in allzoneinfo:
-                error(f"Zone {zone} not in mreg")
-            # Check if using a overriden filename from config
-            if cfg["zones"][zone]:
-                filename = cfg["zones"][zone]
-            else:
-                filename = zone
-            if update_zone(zone, filename, allzoneinfo[zone]) or force:
-                updated = True
-                altfn = None
-                try:
-                    altfn = cfg["zones_exclude_private"][zone]
-                except:
-                    pass
-                get_zone(zone, filename, force, altfn)
-        if updated and "postcommand" in cfg["default"]:
-            common.utils.run_postcommand()
-        lock.release()
-    else:
-        logger.warning(f"Could not lock on {lockfile}")
-
-
-@app.command("get-zonefiles", help="Download zonefiles from mreg.")
+@app.command(COMMAND_NAME, help="Export zone files from mreg.")
 def main(
-    config: Annotated[
-        str | None,
-        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    force_check: Annotated[
+        bool | None,
+        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
     ] = None,
-    force: Annotated[
-        bool,
-        typer.Option("--force", help="force update of all zones"),
-    ] = False,
+    ignore_size_change: Annotated[
+        bool | None,
+        typer.Option(
+            "--ignore-size-change",
+            help="ignore size changes when writing the zone files",
+        ),
+    ] = None,
+    use_saved_data: Annotated[
+        bool | None,
+        typer.Option(
+            "--use-saved-data",
+            help="force use saved data from previous runs. Takes precedence over --force",
+        ),
+    ] = None,
+    filename: Annotated[
+        str | None,
+        typer.Option(
+            "--filename",
+            help="output filename for the zone files",
+        ),
+    ] = None,
 ):
-    global cfg, conn, logger
+    # Get config and add overrides from command line
+    conf = app.get_config()
+    if force_check is not None:
+        conf.get_zonefiles.force_check = force_check
+    if ignore_size_change is not None:
+        conf.get_zonefiles.ignore_size_change = ignore_size_change
+    if use_saved_data is not None:
+        conf.get_zonefiles.use_saved_data = use_saved_data
+    if filename is not None:
+        conf.get_zonefiles.filename = filename
 
-    cfg = configparser.ConfigParser(allow_no_value=True)
-    cfg.read(config or "get-zonefiles.conf")
-
-    for i in ("default", "mreg", "zones"):
-        if i not in cfg:
-            error(f"Missing section {i} in config file", os.EX_CONFIG)
-
-    common.utils.cfg = cfg
-    logger = common.utils.getLogger()
-    conn = common.connection.Connection(cfg["mreg"], logger=logger)
-    get_zonefiles(force)
+    cmd = GetZoneFiles(conf)
+    cmd()
 
 
 if __name__ == "__main__":

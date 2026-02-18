@@ -255,7 +255,7 @@ class ExportedZone(NamedTuple):
     destname: str
 
 
-class GetZonefilesConfig(CommandConfig):
+class GetZoneFilesConfig(CommandConfig):
     """Configuration for get-zonefiles command."""
 
     extradir: ResolvedPath | None = Field(
@@ -546,8 +546,8 @@ class Config(BaseSettings):
         ),
         validation_alias=AliasChoices("get-hostpolicy", "get_hostpolicy"),
     )
-    get_zonefiles: GetZonefilesConfig = Field(
-        default_factory=GetZonefilesConfig,
+    get_zonefiles: GetZoneFilesConfig = Field(
+        default_factory=GetZoneFilesConfig,
         validation_alias=AliasChoices("get-zonefiles", "get_zonefiles"),
     )
     hostgroup_ldif: HostGroupLdifConfig = Field(
