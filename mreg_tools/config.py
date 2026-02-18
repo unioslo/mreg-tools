@@ -20,6 +20,7 @@ from pydantic import Field
 from pydantic import SecretStr
 from pydantic import field_serializer
 from pydantic import field_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import PydanticBaseSettingsSource
 from pydantic_settings import SettingsConfigDict
@@ -290,6 +291,26 @@ class GetZonefilesConfig(CommandConfig):
             else:
                 raise TypeError(f"Invalid zone specification: {item}")
         return result
+
+    @model_validator(mode="after")
+    def _ensure_no_name_collisions(self) -> Self:
+        """Ensure that there are no duplicate destnames across zones."""
+        destnames: dict[str, str] = {}
+        for zone in self.zones + self.zones_exclude_private:
+            if zone.destname in destnames:
+                # TODO: refactor to raise generic ValidationError _or_ specific ConfigError
+                #       which we can then use to determine which part of the config
+                #       is at fault and provide better error messages.
+                from mreg_tools.output import exit_err  # noqa: PLC0415
+
+                exit_err(
+                    (
+                        f"Duplicate destname {zone.destname} in [get-zonefiles] config. "
+                        f"Used by zones {destnames[zone.destname]} and {zone.zone}"
+                    )
+                )
+            destnames[zone.destname] = zone.zone
+        return self
 
 
 class LDIFCommandConfig(CommandConfig):
