@@ -31,9 +31,7 @@ classifiers = [
 ]
 dependencies = [
     "fasteners>=0.20.0",
-    "iso8601>=2.1.0",
     "intervaltree>=3.2.1",
-    "requests>=2.32.5",
     "typer>=0.21.1",
     "dnspython>=2.8.0",
     "pydantic>=2.12",
@@ -42,6 +40,8 @@ dependencies = [
     "mreg-api",
     "rich>=14.3.1",
     "structlog>=25.5.0",
+    "requests[socks]>=2.32.5",
+    "iso8601>=2.1.0",
 ]
 [project.scripts]
 mreg-tools = "mreg_tools.__main__:main"
@@ -50,11 +50,7 @@ mreg-tools = "mreg_tools.__main__:main"
 Repository = 'https://github.com/unioslo/mreg-tools/'
 
 [dependency-groups]
-dev = [
-    "inline-snapshot>=0.31.1",
-    "pytest>=9.0.2",
-    "ruff",
-]
+dev = ["inline-snapshot>=0.31.1", "pytest>=9.0.2", "ruff"]
 
 [tool.inline-snapshot]
 format-command = "ruff check --fix-only --stdin-filename {filename} | ruff format --stdin-filename {filename}"
