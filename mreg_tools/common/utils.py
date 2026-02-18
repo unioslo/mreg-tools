@@ -13,13 +13,16 @@ from time import time
 from typing import NoReturn
 from typing import TypeVar
 
+import structlog.stdlib
 from pydantic import TypeAdapter
 
+from mreg_tools.exceptions import TooManyLineChanges
+from mreg_tools.exceptions import TooSmallNewFile
 from mreg_tools.output import info
 
 T = TypeVar("T")
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger()
 
 
 def timing(f):
@@ -38,30 +41,6 @@ def timing(f):
 COMPARE_LIMITS_LINES = {50: 50, 100: 20, 1000: 15, 10000: 10, sys.maxsize: 10}
 # Absolute minimum file size, in lines
 ABSOLUTE_MIN_SIZE = 10
-
-
-class TooManyLineChanges(Exception):
-    """Raised when the file size change exceeds the allowed limit."""
-
-    newfile: str | Path
-    message: str
-
-    def __init__(self, newfile: str | Path, message: str) -> None:
-        super().__init__(message)
-        self.newfile = newfile
-        self.message = message
-
-
-class TooSmallNewFile(Exception):
-    """Raised when the new file has fewer lines than the minimum required."""
-
-    newfile: str | Path
-    message: str
-
-    def __init__(self, newfile: str | Path, message: str) -> None:
-        super().__init__(message)
-        self.newfile = newfile
-        self.message = message
 
 
 def dump_json(obj: T, typ: type[T], filename: Path, indent: int = 2) -> None:
@@ -105,6 +84,7 @@ def compare_file_size(
         oldlines = old.readlines()
 
     if oldlines == newlines:
+        logger.debug("Old file and new content are identical", oldfile=str(oldfile))
         return
 
     old_count = len(oldlines)
@@ -178,6 +158,9 @@ def write_file(
     # Write content to temp file before checking size
     with open(tempf.name, "w", encoding=encoding) as f:
         f.write(content_str)
+    logger.info(
+        "Wrote temp file", file=tempf.name, encoding=encoding, lines=len(newlines)
+    )
 
     # Validate against existing file
     # NOTE: This may raise an exception, but we have already writtten
