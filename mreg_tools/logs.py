@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import logging.config
+from pathlib import Path
+from types import NoneType
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -19,13 +21,32 @@ if TYPE_CHECKING:
 
 type HandlerDict = dict[str, Any]
 
+JsonPrimitives = (str, int, float, bool, NoneType)
 
-def _serialize_sets(logger, method_name, event_dict: EventDict) -> EventDict:
-    """Convert sets to lists for JSON serialization."""
-    for key, value in event_dict.items():
-        if isinstance(value, set):
-            event_dict[key] = list(value)
-    return event_dict
+
+def _transform(value: Any) -> Any:
+    """Transform a value into a JSON-serializable form if it is a non-primitive type."""
+    # Primitive type - return as is
+    if isinstance(value, JsonPrimitives):
+        return value
+
+    # Special considerations for certain types
+    if isinstance(value, Path):
+        return str(value)
+
+    # Recursively transform collections into lists/dicts of primitives
+    if isinstance(value, set):
+        return [_transform(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _transform(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_transform(v) for v in value]
+    return value  # let serializer handle/fail
+
+
+def transform_types(logger, method_name, event_dict: EventDict) -> EventDict:
+    """Transform non-primitive types in the event dict into JSON-serializable forms."""
+    return _transform(event_dict)
 
 
 timestamper = structlog.processors.TimeStamper(fmt="iso")
@@ -35,7 +56,7 @@ pre_chain = [
     structlog.stdlib.add_logger_name,
     timestamper,
     structlog.stdlib.ExtraAdder(),
-    _serialize_sets,
+    transform_types,
 ]
 """Pre chain for non-structlog loggers (e.g. standard library)."""
 
@@ -133,7 +154,7 @@ def configure_logging(config: Config) -> None:
             timestamper,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.UnicodeDecoder(),
-            _serialize_sets,
+            transform_types,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
