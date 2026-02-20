@@ -102,12 +102,7 @@ class MregData(Generic[T]):
             directory (Path): Directory to load from.
         """
         path = self.filename_json(directory)
-        try:
-            self.data = load_json(list[self.type], path) or self.default
-        except ValidationError as e:
-            error(f"Failed to validate saved data from {path} as {self.type}: {e}")
-        except Exception as e:
-            error(f"Failed to load saved data from {path}: {e}")
+        self.data = load_json(list[self.type], path) or self.default
 
     def filename_json(self, directory: Path) -> Path:
         """Get the filename for the JSON file."""
