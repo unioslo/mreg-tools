@@ -67,9 +67,7 @@ def prepare_validation_error(e: ValidationError) -> list[ErrorDetails]:
 
 def transform_types(logger, method_name, event_dict: EventDict) -> EventDict:
     """Transform non-primitive types in the event dict into JSON-serializable forms."""
-    for k, v in event_dict.items():
-        event_dict[k] = _transform(v)
-    return event_dict
+    return _transform(event_dict)
 
 
 timestamper = structlog.processors.TimeStamper(fmt="iso")
