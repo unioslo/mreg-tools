@@ -15,6 +15,7 @@ from typing import TypeVar
 
 import structlog.stdlib
 from pydantic import TypeAdapter
+from pydantic import ValidationError
 
 from mreg_tools.exceptions import TooManyLineChanges
 from mreg_tools.exceptions import TooSmallNewFile
@@ -45,20 +46,32 @@ ABSOLUTE_MIN_SIZE = 5
 
 def dump_json(obj: T, typ: type[T], filename: Path, indent: int = 2) -> None:
     """Dump an object to a JSON file using Pydantic's TypeAdapter for validation."""
-    adapter = TypeAdapter(typ)
-    _ = filename.write_bytes(adapter.dump_json(obj, indent=indent))
+    log = logger.bind(file=str(filename), type=str(typ))
+    log.debug("Dumping JSON file")
+    try:
+        adapter = TypeAdapter(typ)
+        _ = filename.write_bytes(adapter.dump_json(obj, indent=indent))
+    except ValidationError as e:
+        log.error("Failed to dump data as JSON", error=e)
+    except Exception:
+        # NOTE: We do not re-raise here. It's not mission-critical to be able to dump JSON!
+        log.exception("Failed to write JSON file")
 
 
 def load_json(typ: type[T], filename: Path) -> T | None:
     """Load an object from a JSON file using Pydantic's TypeAdapter for validation."""
-    adapter = TypeAdapter(typ)
+    log = logger.bind(file=str(filename), type=str(typ))
+    log.debug("Loading JSON file")
     try:
+        adapter = TypeAdapter(typ)
         data = filename.read_bytes()
         return adapter.validate_json(data)
     except FileNotFoundError:
-        logger.debug("File %s does not exist", str(filename))
-    except Exception as e:
-        logger.error("Failed to load file %s: %e", str(filename), e)
+        log.debug("JSON file does not exist")
+    except ValidationError as e:
+        log.error("Failed to validate data from JSON file", error=e)
+    except Exception:
+        log.exception("Failed to load JSON file")
     return None
 
 
