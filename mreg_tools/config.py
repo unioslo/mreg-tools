@@ -611,6 +611,32 @@ class Config(BaseSettings):
         nested_model_default_partial_update=True,
     )
 
+    @model_validator(mode="after")
+    def _set_command_directories(self) -> Self:
+        """Assign each command a subdirectory within the default workdir if not already set.
+
+        I.e. by default commands are configured to output to separate subdirectories:
+        * `get-dhcphosts` -> `<workdir>/get-dhcphosts` + `<destdir>/get-dhcphosts`
+        * `get-zonefiles` -> `<workdir>/get-zonefiles` + `<destdir>/get-zonefiles`
+        * etc.
+
+        Directories for commands can be explictly set in the config to override
+        these default directories.
+        """
+        for field, field_info in self.__class__.model_fields.items():
+            if (
+                field_info.annotation
+                and isinstance(field_info.annotation, type)
+                and issubclass(field_info.annotation, CommandConfig)
+            ):
+                cmd_config: CommandConfig = getattr(self, field)
+                dirname = field.replace("_", "-")
+                if cmd_config.workdir is None:
+                    cmd_config.workdir = self.default.workdir / dirname
+                if cmd_config.destdir is None:
+                    cmd_config.destdir = self.default.destdir / dirname
+        return self
+
     @override
     @classmethod
     def settings_customise_sources(
