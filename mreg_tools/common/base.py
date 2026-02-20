@@ -18,6 +18,7 @@ from typing import final
 import structlog.stdlib
 from mreg_api import MregClient
 from mreg_api.types import QueryParams
+from pydantic import ValidationError
 from structlog.stdlib import BoundLogger
 
 from mreg_tools.api import get_client_and_login
@@ -28,6 +29,7 @@ from mreg_tools.config import CommandConfig
 from mreg_tools.config import Config
 from mreg_tools.config import ResolvedCommandConfig
 from mreg_tools.locks import lock_file
+from mreg_tools.output import error
 from mreg_tools.output import exit_err
 
 logger = structlog.stdlib.get_logger()
@@ -94,12 +96,18 @@ class MregData(Generic[T]):
     def load(self, directory: Path) -> None:
         """Load data from a JSON file.
 
+        Prints an error message (and logs) if loading fails, but does not raise an exception.
+
         Args:
             directory (Path): Directory to load from.
         """
-        self.data = (
-            load_json(list[self.type], self.filename_json(directory)) or self.default
-        )
+        path = self.filename_json(directory)
+        try:
+            self.data = load_json(list[self.type], path) or self.default
+        except ValidationError as e:
+            error(f"Failed to validate saved data from {path} as {self.type}: {e}")
+        except Exception as e:
+            error(f"Failed to load saved data from {path}: {e}")
 
     def filename_json(self, directory: Path) -> Path:
         """Get the filename for the JSON file."""
@@ -294,6 +302,7 @@ class CommandBase(ABC, Generic[DataT]):
 
     def _create_dirs(self) -> None:
         """Create necessary directories."""
+        # FIXME: it probably isn't this command's job to create the log dir!
         for path in [self.config.workdir, self.config.destdir, self.config.logdir]:
             try:
                 path.mkdir(parents=True, exist_ok=True)
