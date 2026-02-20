@@ -46,7 +46,9 @@ def _transform(value: Any) -> Any:
 
 def transform_types(logger, method_name, event_dict: EventDict) -> EventDict:
     """Transform non-primitive types in the event dict into JSON-serializable forms."""
-    return _transform(event_dict)
+    for k, v in event_dict.items():
+        event_dict[k] = _transform(v)
+    return event_dict
 
 
 timestamper = structlog.processors.TimeStamper(fmt="iso")
