@@ -40,7 +40,7 @@ def timing(f):
 # Maximum size change in percent for each line count threshold
 COMPARE_LIMITS_LINES = {50: 50, 100: 20, 1000: 15, 10000: 10, sys.maxsize: 10}
 # Absolute minimum file size, in lines
-ABSOLUTE_MIN_SIZE = 10
+ABSOLUTE_MIN_SIZE = 5
 
 
 def dump_json(obj: T, typ: type[T], filename: Path, indent: int = 2) -> None:
@@ -153,7 +153,9 @@ def write_file(
     content_str = content.getvalue()
     newlines = content_str.splitlines(keepends=True)
     if len(newlines) < ABSOLUTE_MIN_SIZE:
-        raise TooSmallNewFile(tempf.name, f"new file less than {ABSOLUTE_MIN_SIZE} lines")
+        raise TooSmallNewFile(
+            tempf.name, f"new file {tempf.name} less than {ABSOLUTE_MIN_SIZE} lines"
+        )
 
     # Write content to temp file before checking size
     with open(tempf.name, "w", encoding=encoding) as f:

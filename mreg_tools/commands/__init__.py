@@ -6,6 +6,7 @@ This module must be imported in order to register the commands.
 
 from __future__ import annotations
 
+from mreg_tools.commands import get_dhcphosts
 from mreg_tools.commands import get_hostinfo
 from mreg_tools.commands import get_hostpolicy
 from mreg_tools.commands import get_zonefiles
@@ -14,8 +15,9 @@ from mreg_tools.commands import hosts_ldif
 from mreg_tools.commands import network_ldif
 
 __all__ = [
-    "get_hostpolicy",
+    "get_dhcphosts",
     "get_hostinfo",
+    "get_hostpolicy",
     "get_zonefiles",
     "hosts_ldif",
     "hostgroup_ldif",

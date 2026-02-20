@@ -6,6 +6,7 @@ import logging
 from collections.abc import Mapping
 from collections.abc import Sequence
 from enum import IntEnum
+from enum import StrEnum
 from typing import Any
 from typing import Literal
 from typing import Self
@@ -35,3 +36,11 @@ class LogLevel(IntEnum):
             return cls[value.upper()]
         except Exception:
             raise MregToolsError(f"Invalid log level: {value}") from None
+
+
+class DhcpHostsType(StrEnum):
+    """Enum for DHCP hosts types."""
+
+    IPV4 = "ipv4"
+    IPV6 = "ipv6"
+    IPV6BYIPV4 = "ipv6byipv4"

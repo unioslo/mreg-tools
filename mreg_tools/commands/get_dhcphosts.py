@@ -1,179 +1,202 @@
 from __future__ import annotations
 
-import configparser
 import io
-import ipaddress
-import os
 from collections import defaultdict
-from os.path import join as opj
-from typing import Annotated
+from typing import Annotated, NamedTuple
+from typing import Final
+from typing import Sequence
+from typing import final
+from typing import override
 
-import fasteners
-import requests
+from mreg_api.models.fields import MacAddress
+from mreg_api.types import IP_AddressT
+import structlog.stdlib
 import typer
+from mreg_api.models import DhcpHost
+from mreg_api.models import DhcpHostIPv4
+from mreg_api.models import DhcpHostIPv6
+from mreg_api.models import DhcpHostIPv6ByIPv4
 
-from mreg_tools import common
 from mreg_tools.app import app
-from mreg_tools.common.utils import error
+from mreg_tools.common.base import CommandBase
+from mreg_tools.common.base import MregData
+from mreg_tools.common.base import MregDataStorage
+from mreg_tools.config import Config
+from mreg_tools.config import GetDhcpHostsConfig
+from mreg_tools.types import DhcpHostsType
+
+COMMAND_NAME: Final[str] = "get-dhcphosts"
+logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
-def create_files(dhcphosts, onefile, force, useOption79=False):
-    def write_file(filename):
-        # 5 lines is a group with domain and a single host.
-        common.utils.ABSOLUTE_MIN_SIZE = 5
-        common.utils.write_file(filename, f, ignore_size_change=force)
+class DhcpHostStorage(MregDataStorage):
+    """Storage for fetched dhcp hosts data."""
 
-    f = io.StringIO()
-    # Sort domain by tld, domain [,subdomain, [subdomain..]]
-    for domain in sorted(
-        list(dhcphosts.keys()), key=lambda i: list(reversed(i.split(".")))
-    ):
-        hosts = dhcphosts[domain]
-        f.write("group { \n")
-        f.write(f'    option domain-name "{domain}";\n\n')
-        for hostname, mac, ip in hosts:
-            # Crude and cheap test to check for ipv6
-            if ":" in ip and useOption79:
-                #
+    def __init__(
+        self,
+        dhcp_hosts: MregData[DhcpHostIPv4]
+        | MregData[DhcpHostIPv6]
+        | MregData[DhcpHostIPv6ByIPv4],
+    ) -> None:
+        self.dhcp_hosts = dhcp_hosts
+
+
+def mock_count() -> int:
+    """Mock count function that always returns 0."""
+    # NOTE: dhcphosts endpoint does not support pagination nor count
+    # so get_first and get_count return
+    return 0
+
+
+@final
+class GetDhcpHosts(CommandBase[DhcpHostStorage]):
+    """get-dhcphosts command class."""
+
+    def __init__(self, app_config: Config):
+        # TODO: warn that this command should have caching enabled, so that
+        #       we can call get_count without actually making an extra API call
+        super().__init__(app_config)
+        hosts_type = self.command_config.hosts
+        if hosts_type == DhcpHostsType.IPV4:
+            dhcp_hosts = MregData(
+                name="dhcp_hosts_ipv4",
+                type=DhcpHostIPv4,
+                default=[],
+                first_func=self.client.dhcp_host_ipv4.get_first,
+                get_func=self.client.dhcp_host_ipv4.get_list,
+                count_func=self.client.dhcp_host_ipv4.get_count,
+            )
+        elif hosts_type == DhcpHostsType.IPV6:
+            dhcp_hosts = MregData(
+                name="dhcp_hosts_ipv6",
+                type=DhcpHostIPv6,
+                default=[],
+                first_func=self.client.dhcp_host_ipv6.get_first,
+                get_func=self.client.dhcp_host_ipv6.get_list,
+                count_func=self.client.dhcp_host_ipv6.get_count,
+            )
+        elif hosts_type == DhcpHostsType.IPV6BYIPV4:
+            dhcp_hosts = MregData(
+                name="dhcp_hosts_ipv6byipv4",
+                type=DhcpHostIPv6ByIPv4,
+                default=[],
+                first_func=self.client.dhcp_host_ipv6byipv4.get_first,
+                get_func=self.client.dhcp_host_ipv6byipv4.get_list,
+                count_func=self.client.dhcp_host_ipv6byipv4.get_count,
+            )
+        else:
+            raise ValueError(f"Invalid hosts type: {hosts_type}")
+
+        self.data = DhcpHostStorage(dhcp_hosts=dhcp_hosts)
+
+    @override
+    def should_run_postcommand(self) -> bool:
+        """Run post-command if any zones were updated."""
+        return self.is_updated
+
+    @property
+    @override
+    def command(self) -> str:
+        return COMMAND_NAME
+
+    @property
+    @override
+    def command_config(self) -> GetDhcpHostsConfig:
+        return self._app_config.get_dhcphosts
+
+    @override
+    def run(self) -> None:
+        self.create_dhcp_files(self.data.dhcp_hosts.data)
+
+    def create_dhcp_files(self, hosts: Sequence[DhcpHost]) -> None:
+        """Create the DHCP config files for all configured hosts."""
+        # Categorize hosts by domain
+        dhcphosts = defaultdict[str, list[DhcpHost]](list)
+        added = set[str]()
+        for host in hosts:
+            if host.zone is not None:
+                domain = host.zone
+            else:
+                if host.name.count(".") > 1:
+                    # domain = host.name.partition(".")[2]
+                    domain = host.name.split(".", 1)[1]
+                else:
+                    domain = host.name
+            dhcphosts[domain].append(host)
+
+        for domain, hosts in dhcphosts.items():
+            self.create_dhcp_file_for_domain(domain, hosts)
+
+    def create_dhcp_file_for_domain(self, domain: str, hosts: list[DhcpHost]) -> None:
+        """Create the DHCP config file for a given domain."""
+        added = set[str]()
+        content = io.StringIO()
+        content.write("group { \n")
+        content.write(f'    option domain-name "{domain}";\n\n')
+        for host in hosts:
+            if host.ipaddress.version == 6 and self.command_config.use_option79:
                 # Handle IPv6 with v6relopt (RFC6939):
                 # host-identifier v6relopt 1 dhcp6.client-linklayer-addr 00:01:XX:XX:XX:XX:XX:XX;
                 # Explanation:
                 # - '00:01' => ARP hardware type = 1 (Ethernet)
                 # - Followed by the actual 6-byte MAC
-                #
-                mac79 = ":".join(["0", "1", *mac.split(":")])
-
-                f.write(f"    host {hostname} {{\n")
-                f.write(
+                mac79 = ":".join(["0", "1", *host.macaddress.split(":")])
+                content.write(f"    host {host.name} {{\n")
+                content.write(
                     f"        host-identifier v6relopt 1 dhcp6.client-linklayer-addr {mac79};\n"
                 )
-                f.write(f"        fixed-address6 {ip};\n")
-                f.write("    }\n")
+                content.write(f"        fixed-address6 {host.ipaddress};\n")
+                content.write("    }\n")
             else:
-                f.write(
-                    f"    host {hostname} {{ hardware ethernet {mac}; fixed-address{'6' if ':' in ip else ''} {ip}; }}\n"
+                if host.name in added:
+                    # If the hostname is already added, we need to make it unique by appending the MAC address without colons
+                    host_name = f"{host.name}-{host.macaddress.replace(':', '')}"
+                else:
+                    host_name = host.name
+                    added.add(host_name)
+                content.write(
+                    f"    host {host_name} {{ hardware ethernet {host.macaddress}; fixed-address{'6' if host.ipaddress.version == 6 else ''} {host.ipaddress}; }}\n"
                 )
-        f.write("}\n")
-
-        if not onefile:
-            write_file(domain)
-            f = io.StringIO()
-    if onefile:
-        write_file(cfg["default"].get("filename", "hosts.conf"))
+        content.write("}\n")
+        self.write(content, filename=domain)
 
 
-def create_url():
-    path = "/api/v1/dhcphosts/"
-    if "hosts" in cfg["mreg"]:
-        hosts = cfg["mreg"]["hosts"]
-        if hosts not in ("ipv4", "ipv6", "ipv6byipv4"):
-            error("'hosts' must be one of 'ipv4', 'ipv6', 'ipv6byipv4'")
-        path += f"{hosts}/"
-    else:
-        error("Missing 'hosts' in mreg section of config")
-    if "range" in cfg["mreg"]:
-        try:
-            ipaddress.ip_network(cfg["mreg"]["range"])
-        except ValueError as e:
-            error(f"Invalid range in config: {e}")
-        path += cfg["mreg"]["range"]
-
-    return requests.compat.urljoin(cfg["mreg"]["url"], path)
-
-
-@common.utils.timing
-def get_dhcphosts(url):
-    ret = conn.get(url).json()
-    dhcphosts = defaultdict(list)
-    done = set()
-    # Make sure we only use hostname as a key once, as ISC dhcpd
-    # requires that the identifier in "host identifier { foo; }"
-    # is unique. For hosts with multiple IPs append the MAC without
-    # colons to make it unique.
-    for i in ret:
-        hostname = i["host__name"]
-        if i["host__zone__name"] is not None:
-            domain = i["host__zone__name"]
-        else:
-            if hostname.count(".") > 1:
-                domain = hostname.split(".", 1)[1]
-            else:
-                domain = hostname
-        if hostname in done:
-            hostname = "{}-{}".format(hostname, i["macaddress"].replace(":", ""))
-        else:
-            done.add(hostname)
-        dhcphosts[domain].append((hostname, i["macaddress"], i["ipaddress"]))
-    return dhcphosts
-
-
-def dhcphosts(args):
-    for dir in (
-        "destdir",
-        "workdir",
-    ):
-        common.utils.mkdir(cfg["default"][dir])
-
-    lockfile = opj(cfg["default"]["workdir"], "lockfile")
-    lock = fasteners.InterProcessLock(lockfile)
-    if lock.acquire(blocking=False):
-        entries_url = requests.compat.urljoin(cfg["mreg"]["url"], "/api/v1/ipaddresses/")
-        obj_filter = 'macaddress__gt=""&page_size=1&ordering=-updated_at'
-        if (
-            common.utils.updated_entries(
-                conn, entries_url, "dhcp.json", obj_filter=obj_filter
-            )
-            or args.force
-        ):
-            dhcphosts = get_dhcphosts(create_url())
-            create_files(
-                dhcphosts,
-                args.one_file,
-                args.force,
-                cfg.getboolean("default", "useOption79"),
-            )
-            if "postcommand" in cfg["default"]:
-                common.utils.run_postcommand()
-        else:
-            logger.info("No updated dhcp entries")
-        lock.release()
-    else:
-        logger.warning(f"Could not lock on {lockfile}")
-
-
-@app.command("get-dhcphosts", help="Create dhcp config from mreg.")
+@app.command(COMMAND_NAME, help="Create dhcp config from mreg.")
 def main(
-    config: Annotated[
-        str | None,
-        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+    force_check: Annotated[
+        bool | None,
+        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
     ] = None,
-    one_file: Annotated[
-        bool,
+    ignore_size_change: Annotated[
+        bool | None,
         typer.Option(
-            "--one-file",
-            help="Write all hosts to one file, instead of per domain",
+            "--ignore-size-change",
+            help="ignore size changes when writing the zone files",
         ),
-    ] = False,
-    force: Annotated[
-        bool,
-        typer.Option("--force", help="force update"),
-    ] = False,
+    ] = None,
+    use_saved_data: Annotated[
+        bool | None,
+        typer.Option(
+            "--use-saved-data",
+            help="force use saved data from previous runs. Takes precedence over --force",
+        ),
+    ] = None,
+    hosts: Annotated[
+        DhcpHostsType | None, typer.Option("--hosts", help="which hosts to export")
+    ] = None,
 ):
-    global cfg, conn, logger
-
-    cfg = configparser.ConfigParser()
-    cfg.read(config or "get-dhcphosts.conf")
-    # Make sure RFC6939 is disabled unless explicityly set as True
-    cfg["default"]["useOption79"] = cfg["default"].get("useOption79", "false")
-
-    for i in ("default", "mreg"):
-        if i not in cfg:
-            error(f"Missing section {i} in config file", os.EX_CONFIG)
-
-    common.utils.cfg = cfg
-    logger = common.utils.getLogger()
-    conn = common.connection.Connection(cfg["mreg"])
-    dhcphosts(args)
+    # Get config and add overrides from command line
+    conf = app.get_config()
+    if force_check is not None:
+        conf.get_dhcphosts.force_check = force_check
+    if ignore_size_change is not None:
+        conf.get_dhcphosts.ignore_size_change = ignore_size_change
+    if use_saved_data is not None:
+        conf.get_dhcphosts.use_saved_data = use_saved_data
+    if hosts is not None:
+        conf.get_dhcphosts.hosts = hosts
+    cmd = GetDhcpHosts(conf)
+    cmd()
 
 
 if __name__ == "__main__":

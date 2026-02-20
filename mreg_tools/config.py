@@ -7,7 +7,6 @@ import shlex
 from pathlib import Path
 from typing import Annotated
 from typing import Any
-from typing import Literal
 from typing import NamedTuple
 from typing import Self
 from typing import override
@@ -30,6 +29,7 @@ from mreg_tools.constants import DEFAULT_CONFIG_PATHS
 from mreg_tools.constants import DEFAULT_DESTDIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
+from mreg_tools.types import DhcpHostsType
 from mreg_tools.types import LDIFEntryValue
 from mreg_tools.types import LogLevel
 
@@ -231,12 +231,17 @@ class LdifSettings(BaseModel):
         }
 
 
-class GetDhcphostsConfig(CommandConfig):
+class GetDhcpHostsConfig(CommandConfig):
     """Configuration for get-dhcphosts command."""
 
-    hosts: Literal["ipv4", "ipv6", "all"] = Field(
-        default="ipv4",
+    hosts: DhcpHostsType = Field(
+        default=DhcpHostsType.IPV4,
         description="IP version to export",
+    )
+    use_option79: bool = Field(
+        default=False,
+        description="Use DHCP option 79 (device hostname) instead of option 12 (host name) if available",
+        validation_alias=AliasChoices("useOption79", "use_option79"),
     )
 
 
@@ -530,8 +535,8 @@ class Config(BaseSettings):
     )
 
     # Command-specific configurations
-    get_dhcphosts: GetDhcphostsConfig = Field(
-        default_factory=GetDhcphostsConfig,
+    get_dhcphosts: GetDhcpHostsConfig = Field(
+        default_factory=GetDhcpHostsConfig,
         validation_alias=AliasChoices("get-dhcphosts", "get_dhcphosts"),
     )
     get_hostinfo: GetHostinfoConfig = Field(
