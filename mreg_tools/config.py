@@ -96,6 +96,10 @@ class MregConfig(BaseModel):
         default=None, description="MREG password (overrides passwordfile)"
     )
     page_size: int = Field(default=1000, description="Page size for API requests")
+    cache: bool = Field(
+        default=False,
+        description="Whether to cache API responses in memory during execution",
+    )
 
     def get_password(self) -> str:
         """Retrieve the password from the passwordfile or the password field."""

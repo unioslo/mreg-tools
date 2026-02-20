@@ -14,6 +14,7 @@ def _get_client(config: MregConfig) -> MregClient:
         url=config.url,
         timeout=600,  # TODO: make configurable
         page_size=config.page_size,
+        cache=config.cache,
     )
 
 
