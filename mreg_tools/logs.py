@@ -6,8 +6,11 @@ from pathlib import Path
 from types import NoneType
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Final
 
 import structlog
+from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 from structlog.typing import EventDict
 
 from mreg_tools.common.utils import mkdir
@@ -23,6 +26,11 @@ type HandlerDict = dict[str, Any]
 
 JsonPrimitives = (str, int, float, bool, NoneType)
 
+# TODO: refactor logging configuration to make a factory
+# function that returns validation error formatting with
+# the configured number of max errors.
+MAX_VALIDATION_ERRORS: Final[int] = 5
+
 
 def _transform(value: Any) -> Any:
     """Transform a value into a JSON-serializable form if it is a non-primitive type."""
@@ -34,6 +42,10 @@ def _transform(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
 
+    # Transform exceptions
+    if isinstance(value, ValidationError):
+        return prepare_validation_error(value)
+
     # Recursively transform collections into lists/dicts of primitives
     if isinstance(value, set):
         return [_transform(v) for v in value]
@@ -42,6 +54,15 @@ def _transform(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_transform(v) for v in value]
     return value  # let serializer handle/fail
+
+
+def prepare_validation_error(e: ValidationError) -> list[ErrorDetails]:
+    """Prepare a ValidationError for logging by extracting and transforming its error details."""
+    # Validation errors can produce a _lot_ of noise
+    # especially if we are validating lots of data.
+    # In almost every case, logging just a few of these
+    # is enough to debug the issue.
+    return e.errors(include_url=False)[:MAX_VALIDATION_ERRORS]
 
 
 def transform_types(logger, method_name, event_dict: EventDict) -> EventDict:
