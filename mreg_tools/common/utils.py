@@ -19,7 +19,6 @@ from pydantic import ValidationError
 
 from mreg_tools.exceptions import TooManyLineChanges
 from mreg_tools.exceptions import TooSmallNewFile
-from mreg_tools.output import info
 
 T = TypeVar("T")
 
@@ -151,6 +150,8 @@ def write_file(
         TooSmallNewFile: If the new file has fewer lines than ABSOLUTE_MIN_SIZE.
         TooManyLineChanges: If the size difference exceeds the allowed limit.
     """
+    from mreg_tools.output import info
+
     # Create a temp file to write the new contents to
     tempf = tempfile.NamedTemporaryFile(
         delete=False,
