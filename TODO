@@ -1,0 +1,44 @@
+# TODO
+
+## IMPORTANT
+
+## Figure out file name collisions between commands
+
+`get-dhcphosts` and `get-zonefiles` both produce files named after zones/domains, which causes a collision if they output to the same directory. Use separate destdirs by default?
+
+### Remove old requirements
+
+* `iso8601`
+* `requests`
+
+### Top-level exception handler
+
+Add a top level exception handler that catches all unhandled exceptions and logs them, so we have a log trail if something goes wrong. Should not catch `SystemExit`, since `exit_err` already logs (change this?).
+
+## General
+
+### LDIF Options
+
+Add LDIF CLI options to LDIF commands:
+
+* --dn
+* --cn
+* --ou
+* --description
+* --objectclass
+
+* Use `pathvalidate` to validate and sanitize file paths in config and commands.
+
+### Old files
+
+Should we store old files in a separate directory instead of appending `_old` to the filename? This would make it easier to compare old and new files, and avoid cluttering the output directory with old files.
+
+### Separate default output directories for different commands
+
+Commands such as `get-zonefiles` and `get-dhcphosts` should have separate default output directories to avoid file name collisions and make it easier to manage the output files.
+
+## Commands
+
+### hosts-ldif
+
+* Add filtering by zone (unused in prod, but existed in old script)
