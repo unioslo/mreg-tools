@@ -17,7 +17,6 @@ from pydantic import BaseModel
 from pydantic import BeforeValidator
 from pydantic import Field
 from pydantic import SecretStr
-from pydantic import field_serializer
 from pydantic import field_validator
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
@@ -484,11 +483,6 @@ class LoggingConfig(BaseModel):
         default_factory=FileLoggingConfig,
         description="File logging settings",
     )
-
-    @field_serializer("level")
-    def serialize_level(self, level: LogLevel) -> str:
-        """Serialize the LogLevel enum to its name for better readability in config files."""
-        return level.name
 
     @override
     def model_post_init(self, context: Any, /) -> None:

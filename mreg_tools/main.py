@@ -11,7 +11,6 @@ from mreg_tools.app import app
 from mreg_tools.config import Config
 from mreg_tools.logs import configure_logging
 from mreg_tools.types import LogLevel
-from mreg_tools.types import LogLevelNames
 
 # fmt: off
 # NOTE: EXTREMELY IMPORTANT TO LEAVE THIS IMPORT HERE!
@@ -28,10 +27,8 @@ def main_callback(
         Path | None, typer.Option("--config", help="Path to config file.")
     ] = None,
     log_level: Annotated[
-        LogLevelNames | None,
-        typer.Option(
-            "--log-level", help="Override log level in config.", case_sensitive=False
-        ),
+        LogLevel | None,
+        typer.Option("--log-level", help="Log level", case_sensitive=False),
     ] = None,
 ) -> None:
     conf = Config.load(config)

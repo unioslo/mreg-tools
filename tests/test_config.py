@@ -123,10 +123,20 @@ def test_logging_config_level(inp: str | int, expected: LogLevel):
     # Test validation
     config = LoggingConfig(level=inp)  # pyright: ignore[reportArgumentType]
 
-    # Validates as a level for stdlib logging
+    # Parsed correctly
     assert config.level == expected
-    # But it is also an instance of our custom LogLevel enum
+
+    # Can be converted to integer log level
+    assert int(config.level) == int(expected)
+
+    # Name is a valid log level name (case-insensitive)
+    # NOTE: this method is deprecated in stdlib, but we can
+    # use it to verify that LogLevel is compatible with stdlib log levels
+    logging.getLevelName(config.level)  # Should not raise
+
+    # Type is correct (StrEnum)
     assert isinstance(config.level, LogLevel)
+    assert isinstance(config.level, str)
 
     # Test serialization
     serialized = config.model_dump()

@@ -5,27 +5,26 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from collections.abc import Sequence
-from enum import IntEnum
 from enum import StrEnum
 from typing import Any
-from typing import Literal
 from typing import Self
 
 type LDIFEntryValue = str | int | Sequence[str] | Sequence[int]
 type LDIFEntry = Mapping[str, str | int | Sequence[str] | Sequence[int]]
 
 
-LogLevelNames = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-
-class LogLevel(IntEnum):
+class LogLevel(StrEnum):
     """Enum for log levels."""
 
-    DEBUG = logging.DEBUG
-    INFO = logging.INFO
-    WARNING = logging.WARNING
-    ERROR = logging.ERROR
-    CRITICAL = logging.CRITICAL
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+    def __int__(self) -> int:
+        """Return the log level as its numeric value."""
+        return logging.getLevelNamesMapping()[self]
 
     @classmethod
     def _missing_(cls, value: Any) -> Self:
@@ -34,8 +33,12 @@ class LogLevel(IntEnum):
 
         try:
             return cls[value.upper()]
-        except Exception:
-            raise MregToolsError(f"Invalid log level: {value}") from None
+        except (AttributeError, KeyError):
+            try:
+                return cls[logging.getLevelName(value)]  # pyright: ignore[reportDeprecated, reportAny]
+            except (AttributeError, KeyError):
+                pass
+        raise MregToolsError(f"Invalid log level: {value}") from None
 
 
 class DhcpHostsType(StrEnum):
