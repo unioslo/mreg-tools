@@ -106,6 +106,12 @@ class MregData(Generic[T]):
 
     def filename_json(self, directory: Path) -> Path:
         """Get the filename for the JSON file."""
+        # TODO: add suffix to name based on params used to fetch
+        # data, so that different commands that fetch the same resource
+        # using different parameters don't clobber each other's data
+        #
+        # Params need to be sorted and normalized to ensure consistent
+        # and valid filenames.
         return directory / f"{self.name}.json"
 
 
