@@ -12,6 +12,7 @@ from mreg_tools.commands import get_hostpolicy
 from mreg_tools.commands import get_zonefiles
 from mreg_tools.commands import hostgroup_ldif
 from mreg_tools.commands import hosts_ldif
+from mreg_tools.commands import network_import
 from mreg_tools.commands import network_ldif
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "get_zonefiles",
     "hosts_ldif",
     "hostgroup_ldif",
+    "network_import",
     "network_ldif",
 ]
