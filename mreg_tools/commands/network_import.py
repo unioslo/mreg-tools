@@ -120,6 +120,117 @@ class NetworkIntervalTree:
             self.tree[begin:end] = network
 
 
+def read_network_file(filename: Path, imported_tags: ImportedTags) -> ImportedNetworks:
+    """Import networks from file."""
+
+    def line_error(message: str) -> NoReturn:
+        """Exit with an error message including the line number."""
+        exit_err(f"{filename} line {line_number}: {message}")
+
+    if not filename.exists():
+        exit_err(f"Network file {filename} does not exist.")
+
+    logger.info("Reading network file", file=filename)
+
+    try:
+        content = filename.read_text(encoding="latin-1")  # TODO: don't hardcode?
+    except Exception as e:
+        exit_err(f"Failed to read network file {filename}: {e}")
+
+    imported = ImportedNetworks()
+    tree = NetworkIntervalTree()
+
+    # Parse lines. Each line should contain a network definition
+    for line_number, line in enumerate(content.splitlines(), 1):
+        line = line.strip()
+        if line.startswith("#"):
+            continue
+
+        # Validate line
+        res = network_re.match(line)
+        if not res:
+            line_error(f"Could not match string: {line}")
+
+        # Network address
+        network_str = str(res.group("network").lower())
+        try:
+            network = ipaddress.ip_network(network_str)
+        except ValueError as e:
+            line_error(f"Network is invalid: {e}")
+        tree.overlap_check(network)
+
+        # VLAN
+        vlan = res.group("vlan")
+        if vlan is not None:
+            vlan = int(vlan)
+
+        # Description
+        desc = res.group("description").strip()
+        if not desc:
+            line_error("Missing description.")
+
+        # Tags
+        categories: list[str] = []
+        locations: list[str] = []
+        if tags := res.group("tags"):
+            for tag in tags.split(":"):
+                if tag in imported_tags.location:
+                    locations.append(tag)
+                elif tag in imported_tags.category:
+                    categories.append(tag)
+                else:
+                    logger.warning(
+                        f"{line_number}: Invalid tag {tag}. Check valid in tags file."
+                    )
+
+        # TODO: assign lists to category and location,
+        # and handle formatting when actually importing the networks
+        data = ImportedNetwork(
+            network=network_str,
+            description=desc,
+            vlan=vlan,
+            category=" ".join(categories),
+            location=" ".join(locations),
+        )
+
+        if network.version == 4:
+            imported.ipv4[network_str] = data
+        elif network.version == 6:
+            imported.ipv6[network_str] = data
+
+    return imported
+
+
+def read_tags_file(filename: Path) -> ImportedTags:
+    """Read tags from tags file."""
+    tags = ImportedTags()
+
+    if not filename.exists():
+        exit_err(f"Tags file {filename} does not exist.")
+
+    try:
+        # NOTE: no encoding specified in original script here!
+        content = filename.read_text()
+    except Exception as e:
+        exit_err(f"Failed to read tags file {filename}: {e}")
+
+    for line_number, line in enumerate(content.splitlines(), 1):
+        line = line.strip()
+        if line.startswith("#") or len(line) == 0:
+            continue
+
+        res = flag_re.match(line)
+        if not res:
+            exit_err(f"{filename} line {line_number}: Could not match string: {line}")
+
+        if res.group("location"):
+            tags.location.add(res.group("location"))
+        elif res.group("category"):
+            tags.category.add(res.group("category"))
+
+    return tags
+
+
 # TODO: refactor all datastructures to be indepdendent of IP version?
 
 
@@ -281,17 +392,20 @@ class NetworkImport(CommandBase[NetworkStorage]):
             )
         )
 
-        # TODO: Ensure tags are imported before importing networks.
-        #
-        #       How?
-        #           * Explicitly check if tags are imported?
-        #           * Pass in tags to the method?
-        #
-        #       For now, it's handy to not require it, as it makes testing
-        #       easier, but ideally we should enforce it.
+        if not self.command_config.networkfile:
+            exit_err(
+                "Network file missing. Use --networkfile to specify the file to import."
+            )
 
-        self.tags = self.read_tags_file()
-        self.imported_networks = self.read_network_file()
+        if self.command_config.tagsfile:
+            self.tags = read_tags_file(self.command_config.tagsfile)
+        else:
+            logger.debug("No tags file specified, skipping reading tags.")
+            self.tags = ImportedTags()
+
+        self.imported_networks = read_network_file(
+            self.command_config.networkfile, self.tags
+        )
 
         # Data structures
         self.pending_deletions = PendingDeletions()
@@ -331,125 +445,6 @@ class NetworkImport(CommandBase[NetworkStorage]):
         # Run sync
         self.sync_with_mreg(self.mreg_networks.ipv4, self.imported_networks.ipv4, 4)
         self.sync_with_mreg(self.mreg_networks.ipv6, self.imported_networks.ipv6, 6)
-
-    def read_tags_file(self) -> ImportedTags:
-        """Read tags from tags file."""
-        tags = ImportedTags()
-
-        tagsfile = self.command_config.tagsfile
-        if not tagsfile:
-            logger.debug("No tags file specified, skipping reading tags.")
-            return tags
-        elif not tagsfile.exists():
-            exit_err(f"Tags file {tagsfile} does not exist.")
-
-        try:
-            # NOTE: no encoding specified in original script here!
-            content = tagsfile.read_text()
-        except Exception as e:
-            exit_err(f"Failed to read tags file {tagsfile}: {e}")
-
-        for line_number, line in enumerate(content.splitlines(), 1):
-            line = line.strip()
-            if line.startswith("#") or len(line) == 0:
-                continue
-
-            res = flag_re.match(line)
-            if not res:
-                exit_err(f"{tagsfile} line {line_number}: Could not match string: {line}")
-
-            if res.group("location"):
-                tags.location.add(res.group("location"))
-            elif res.group("category"):
-                tags.category.add(res.group("category"))
-
-        return tags
-
-    def read_network_file(self) -> ImportedNetworks:
-        """Import networks from file."""
-
-        def line_error(message: str) -> NoReturn:
-            """Exit with an error message including the line number."""
-            exit_err(f"{filename} line {line_number}: {message}")
-
-        filename = self.command_config.networkfile
-        if not filename:
-            # should be unreachable
-            exit_err(
-                "Network file missing. Use --networkfile to specify the file to import."
-            )
-        elif not filename.exists():
-            exit_err(f"Network file {filename} does not exist.")
-
-        self.logger.info("Reading network file", file=filename)
-
-        try:
-            content = filename.read_text(encoding="latin-1")  # TODO: don't hardcode?
-        except Exception as e:
-            exit_err(f"Failed to read network file {filename}: {e}")
-
-        imported = ImportedNetworks()
-        tree = NetworkIntervalTree()
-
-        # Parse lines. Each line should contain a network definition
-        for line_number, line in enumerate(content.splitlines(), 1):
-            line = line.strip()
-            if line.startswith("#"):
-                continue
-
-            # Validate line
-            res = network_re.match(line)
-            if not res:
-                line_error(f"Could not match string: {line}")
-
-            # Network address
-            network_str = str(res.group("network").lower())
-            try:
-                network = ipaddress.ip_network(network_str)
-            except ValueError as e:
-                line_error(f"Network is invalid: {e}")
-            tree.overlap_check(network)
-
-            # VLAN
-            vlan = res.group("vlan")
-            if vlan is not None:
-                vlan = int(vlan)
-
-            # Description
-            desc = res.group("description").strip()
-            if not desc:
-                line_error("Missing description.")
-
-            # Tags
-            categories: list[str] = []
-            locations: list[str] = []
-            if tags := res.group("tags"):
-                for tag in tags.split(":"):
-                    if tag in self.tags.location:
-                        locations.append(tag)
-                    elif tag in self.tags.category:
-                        categories.append(tag)
-                    else:
-                        self.logger.warning(
-                            f"{line_number}: Invalid tag {tag}. Check valid in tags file."
-                        )
-
-            # TODO: assign lists to category and location,
-            # and handle formatting when actually importing the networks
-            data = ImportedNetwork(
-                network=network_str,
-                description=desc,
-                vlan=vlan,
-                category=" ".join(categories),
-                location=" ".join(locations),
-            )
-
-            if network.version == 4:
-                imported.ipv4[network_str] = data
-            elif network.version == 6:
-                imported.ipv6[network_str] = data
-
-        return imported
 
     def compare_with_mreg(
         self, import_data: dict[str, ImportedNetwork], mreg_data: dict[str, Network]
@@ -884,12 +879,6 @@ def main(
         conf.network_import.dryrun = dryrun
     if max_size_change is not None:
         conf.network_import.max_size_change = max_size_change
-
-    # NOTE: remove these checks? Do everything in NetworkImport?
-    if not conf.network_import.networkfile:
-        exit_err("Network file missing. Use --networkfile to specify the file to import.")
-    elif not conf.network_import.networkfile.exists():
-        exit_err(f"Network file {conf.network_import.networkfile} does not exist.")
 
     cmd = NetworkImport(conf)
     cmd()
