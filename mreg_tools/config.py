@@ -26,6 +26,7 @@ from pydantic_settings import TomlConfigSettingsSource
 
 from mreg_tools.constants import DEFAULT_CONFIG_PATHS
 from mreg_tools.constants import DEFAULT_DESTDIR
+from mreg_tools.constants import DEFAULT_EXTRADIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
 from mreg_tools.types import DhcpHostsType
@@ -169,6 +170,10 @@ class CommandConfig(BaseModel):
     destdir: ResolvedPath | None = Field(
         default=None,
         description="Destination directory for output",
+    )
+    extradir: ResolvedPath | None = Field(
+        default=None,
+        description="Directory for files used by the command (e.g. additional input files or templates)",
     )
 
     ## File settings
@@ -346,9 +351,21 @@ class HostsLdifConfig(LDIFCommandConfig):
 class NetworkImportConfig(CommandConfig):
     """Configuration for network-import command."""
 
-    tagsfile: str | None = Field(
+    networkfile: Path | None = Field(default=None, description="Path to the network file")
+    tagsfile: Path | None = Field(
         default=None,
         description="Path to tags file",
+    )
+    dryrun: bool = Field(
+        default=False, description="Perform a dry run without making changes to MREG"
+    )
+    max_size_change: int = Field(
+        default=20,
+        description="Maximum allowed size change in percent for the network import",
+    )
+    dummy_range_ipv4: str = Field(
+        default="255.255.255.0/32",
+        description="Dummy range to patch replaced IPv4 networks with before deleting when grown over.",
     )
 
 
@@ -371,6 +388,10 @@ class DefaultConfig(BaseModel):
     destdir: ResolvedPath = Field(
         default=DEFAULT_DESTDIR,
         description="Destination directory for output",
+    )
+    extradir: ResolvedPath = Field(
+        default=DEFAULT_EXTRADIR,
+        description="Directory for files used by the command (e.g. additional input files or templates)",
     )
     logdir: ResolvedPath = Field(
         default=DEFAULT_LOGDIR,
@@ -498,6 +519,7 @@ class ResolvedCommandConfig(BaseModel):
     workdir: Path
     destdir: Path
     logdir: Path
+    extradir: Path
     encoding: str
     mode: int | None
     max_line_change_percent: int | None
@@ -668,6 +690,7 @@ class Config(BaseSettings):
             workdir=command_config.workdir or self.default.workdir,
             destdir=command_config.destdir or self.default.destdir,
             logdir=self.default.logdir,  # logdir is not overridden by command config
+            extradir=command_config.extradir or self.default.extradir,
             encoding=command_config.encoding or self.default.encoding,
             mode=(
                 command_config.mode
@@ -704,23 +727,10 @@ class Config(BaseSettings):
     ) -> ResolvedLdifCommandConfig:
         """Resolve an LDIFCommandConfig by applying overrides to the default config."""
         base = self.resolve(command_config)
-        return ResolvedLdifCommandConfig(
-            # Base command config options
-            workdir=base.workdir,
-            destdir=base.destdir,
-            logdir=base.logdir,
-            encoding=base.encoding,
-            mode=base.mode,
-            max_line_change_percent=base.max_line_change_percent,
-            mreg=base.mreg,
-            keepoldfile=base.keepoldfile,
-            postcommand=base.postcommand,
-            postcommand_timeout=base.postcommand_timeout,
-            force_check=base.force_check,
-            use_saved_data=base.use_saved_data,
-            filename=base.filename,
-            ignore_size_change=base.ignore_size_change,
-            lock=base.lock,
-            # LDIF command options
-            ldif=command_config.ldif,
+        return ResolvedLdifCommandConfig.model_validate(
+            {
+                # Dump to dict and back to avoid repeating all fields
+                **base.model_dump(),
+                "ldif": command_config.ldif,
+            }
         )
