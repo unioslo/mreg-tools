@@ -822,7 +822,7 @@ class NetworkImport(CommandBase[NetworkStorage]):
 def main(
     config: Annotated[
         str | None,
-        typer.Option(None, help="(DEPRECATED) path to config file", hidden=True),
+        typer.Option(help="(DEPRECATED) path to config file", hidden=True),
     ] = None,
     networkfile: Annotated[
         Path | None,
@@ -830,7 +830,7 @@ def main(
     ] = None,
     tagsfile: Annotated[
         Path | None,
-        typer.Option(None, help="File with valid tags for network import"),
+        typer.Option("--tagsfile", help="File with valid tags for network import"),
     ] = None,
     use_saved_data: Annotated[
         bool | None,
