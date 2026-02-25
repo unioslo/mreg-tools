@@ -131,31 +131,26 @@ class GetHostPolicy(CommandBase[HostDataStorage]):
         self.write(content, filename="roles.csv")
 
 
-@app.command(COMMAND_NAME, help="Export host info from mreg as a textfiles.")
+@app.command(
+    COMMAND_NAME, help="Export roles, atoms and host policies from mreg as CSV files."
+)
 def main(
     force_check: Annotated[
         bool | None,
-        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
+        typer.Option("--force", "--force-check", help="Force refresh of data from mreg"),
     ] = None,
     ignore_size_change: Annotated[
         bool | None,
         typer.Option(
             "--ignore-size-change",
-            help="ignore size changes when writing the LDIF file",
+            help="Ignore size changes when writing the output files",
         ),
     ] = None,
     use_saved_data: Annotated[
         bool | None,
         typer.Option(
             "--use-saved-data",
-            help="force use saved data from previous runs. Takes precedence over --force",
-        ),
-    ] = None,
-    filename: Annotated[
-        str | None,
-        typer.Option(
-            "--filename",
-            help="output filename for the ldif file",
+            help="Force use saved data from previous runs. Takes precedence over --force",
         ),
     ] = None,
 ):
@@ -167,8 +162,6 @@ def main(
         conf.get_hostpolicy.ignore_size_change = ignore_size_change
     if use_saved_data is not None:
         conf.get_hostpolicy.use_saved_data = use_saved_data
-    if filename is not None:
-        conf.get_hostpolicy.filename = filename
 
     cmd = GetHostPolicy(conf)
     cmd()
