@@ -80,31 +80,35 @@ class GetHostInfo(CommandBase[HostDataStorage]):
         return "{};{}\n".format(host.name, emails)
 
 
-@app.command(COMMAND_NAME, help="Export host info from mreg as a textfiles.")
+@app.command(COMMAND_NAME, help="Export host info from mreg as a CSV file.")
 def main(
     force_check: Annotated[
         bool | None,
-        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
+        typer.Option(
+            "--force",
+            "--force-check",
+            help="Force refresh of data from mreg",
+        ),
     ] = None,
     ignore_size_change: Annotated[
         bool | None,
         typer.Option(
             "--ignore-size-change",
-            help="ignore size changes when writing the LDIF file",
+            help="Ignore size changes when writing the output file",
         ),
     ] = None,
     use_saved_data: Annotated[
         bool | None,
         typer.Option(
             "--use-saved-data",
-            help="force use saved data from previous runs. Takes precedence over --force",
+            help="Force use saved data from previous runs. Takes precedence over --force",
         ),
     ] = None,
     filename: Annotated[
         str | None,
         typer.Option(
             "--filename",
-            help="output filename for the ldif file",
+            help="Filename for the output file",
         ),
     ] = None,
 ):
