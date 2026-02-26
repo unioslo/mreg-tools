@@ -40,17 +40,6 @@ def main_callback(
 
     configure_logging(conf)
 
-    # client = app.get_client(conf.mreg)
-
-
-@app.command("test")
-def test() -> None:
-    from mreg_tools.api import get_client_and_login
-
-    client = get_client_and_login(app.get_config().mreg)
-    host = client.host.get_by_any_means_or_raise("auspex")
-    print(f"Host: {host.name}, {host.id}")
-
 
 def main():
     app()
