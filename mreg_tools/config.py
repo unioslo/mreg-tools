@@ -363,6 +363,7 @@ class NetworkImportConfig(CommandConfig):
         default=20,
         description="Maximum allowed size change in percent for the network import",
     )
+    # TODO: add validation for this field?
     dummy_range_ipv4: str = Field(
         default="255.255.255.0/32",
         description="Dummy range to patch replaced IPv4 networks with before deleting when grown over.",

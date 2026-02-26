@@ -41,6 +41,8 @@ from mreg_tools.output import exit_err
 COMMAND_NAME: Final[str] = "network-import"
 logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
+IP_VERSION = Literal[4, 6]
+
 
 network_re = re.compile(
     r"""^
@@ -64,6 +66,8 @@ DEFAULT_TXT = "v=spf1 -all"
 
 
 class HasIpNetwork(Protocol):
+    """Protocol for an object that exposes an ip_network attribute."""
+
     @cached_property
     def ip_network(self) -> IP_NetworkT: ...  # noqa: D102
 
@@ -78,14 +82,18 @@ def sort_networks(networks: Iterable[IpNetworkT]) -> list[IpNetworkT]:
 
 @final
 class NetworkIntervalTree:
+    """Interval tree for efficiently checking for overlapping networks."""
+
     def __init__(self) -> None:
         self.tree = IntervalTree()
         self.points = set[int]()
 
-    def overlap_check(
+    def check_overlap(
         self, network: ipaddress.IPv4Network | ipaddress.IPv6Network
     ) -> None:
         """Check if a network overlaps with any existing networks in the tree or points set.
+
+        Adds the network to the tree if no overlap is detected.
 
         Exits with an error if overlap is detected.
         """
@@ -157,7 +165,7 @@ def read_network_file(filename: Path, imported_tags: ImportedTags) -> ImportedNe
             network = ipaddress.ip_network(network_str)
         except ValueError as e:
             line_error(f"Network is invalid: {e}")
-        tree.overlap_check(network)
+        tree.check_overlap(network)
 
         # VLAN
         vlan = res.group("vlan")
@@ -252,7 +260,7 @@ class ImportedNetwork:
         return ipaddress.ip_network(self.network)
 
     @cached_property
-    def ip_version(self) -> Literal[4, 6]:
+    def ip_version(self) -> IP_VERSION:
         """Return the IP version of the network."""
         return self.ip_network.version
 
@@ -305,7 +313,7 @@ class HostDeletionInfo:
 
 
 @dataclass
-class PendingDeletions:
+class HostDeletions:
     """Tracks hosts and their associated resources pending deletion."""
 
     _entries: dict[str, HostDeletionInfo] = field(default_factory=dict, repr=False)
@@ -335,8 +343,8 @@ class PendingDeletions:
 
 
 @dataclass()
-class NetworkModifications:
-    """Modifications to be made to align MREG with the imported network data."""
+class NetworkChanges:
+    """Changes to be made to align MREG with the imported network data."""
 
     keep: set[Network] = field(default_factory=set)
     create: set[ImportedNetwork] = field(default_factory=set)
@@ -349,6 +357,7 @@ class NetworkModifications:
     shrink: defaultdict[Network, set[ImportedNetwork]] = field(
         default_factory=lambda: defaultdict(set)
     )
+    unremovable: list[UnremovableNetwork] = field(default_factory=list)
 
     def number_of_changes(self) -> int:
         """Return the total number of changes (creates, deletes, patches, grow, shrink) to be made."""
@@ -362,6 +371,24 @@ class NetworkModifications:
             + len(self.grow)
             + len(self.shrink)
         )
+
+
+@dataclass
+class HostChanges:
+    """Changes to be made to a host to align MREG with the imported network data."""
+
+    delete_host: bool = False
+    delete_ips: list[IPAddress] = field(default_factory=list)
+    delete_ptrs: list[PTR_override] = field(default_factory=list)
+
+
+@dataclass
+class SyncPlan:
+    """Complete plan for synchronising MREG with imported data for a given IP version."""
+
+    ip_version: IP_VERSION
+    networks: NetworkChanges = field(default_factory=NetworkChanges)
+    hosts: HostDeletions = field(default_factory=HostDeletions)
 
 
 @dataclass
@@ -400,17 +427,12 @@ class NetworkImport(CommandBase[NetworkStorage]):
         if self.command_config.tagsfile:
             self.tags = read_tags_file(self.command_config.tagsfile)
         else:
-            logger.debug("No tags file specified, skipping reading tags.")
+            self.logger.debug("No tags file specified, skipping reading tags.")
             self.tags = ImportedTags()
 
         self.imported_networks = read_network_file(
             self.command_config.networkfile, self.tags
         )
-
-        # Data structures
-        self.pending_deletions = PendingDeletions()
-        self.unremovable_networks = list[UnremovableNetwork]()
-        self.mreg_networks = MregNetworks()
 
     @override
     def should_run_postcommand(self) -> bool:
@@ -436,74 +458,91 @@ class NetworkImport(CommandBase[NetworkStorage]):
     @override
     def run(self) -> None:
         # Categorize imported data by IP version
+        mreg_networks = MregNetworks()
         for network in self.data.networks.data:
             if network.ip_network.version == 4:
-                self.mreg_networks.ipv4[network.network] = network
+                mreg_networks.ipv4[network.network] = network
             elif network.ip_network.version == 6:
-                self.mreg_networks.ipv6[network.network] = network
+                mreg_networks.ipv6[network.network] = network
 
         # Run sync
-        self.sync_with_mreg(self.mreg_networks.ipv4, self.imported_networks.ipv4, 4)
-        self.sync_with_mreg(self.mreg_networks.ipv6, self.imported_networks.ipv6, 6)
+        self.sync_with_mreg(mreg_networks.ipv4, self.imported_networks.ipv4, 4)
+        self.sync_with_mreg(mreg_networks.ipv6, self.imported_networks.ipv6, 6)
 
     def compare_with_mreg(
-        self, import_data: dict[str, ImportedNetwork], mreg_data: dict[str, Network]
-    ) -> NetworkModifications:
-        networks = NetworkModifications()
+        self,
+        import_data: dict[str, ImportedNetwork],
+        mreg_data: dict[str, Network],
+        ip_version: IP_VERSION,
+    ) -> SyncPlan:
+        """Compare imported data with current MREG data and create a sync plan.
+
+        Args:
+            import_data (dict[str, ImportedNetwork]): Imported networks
+            mreg_data (dict[str, Network]): Current MREG networks
+            ip_version (IP_VERSION): IP version of the networks being compared
+
+        Returns:
+            SyncPlan: Plan for synchronising MREG with imported data.
+        """
+        plan = SyncPlan(ip_version=ip_version)
 
         # Keep networks found in both mreg and import data
         # Create networks found in import data but not in mreg
         for nw_addr, network in import_data.items():
             if mreg_host := mreg_data.get(nw_addr):
-                networks.keep.add(mreg_host)
+                plan.networks.keep.add(mreg_host)
             else:
-                networks.create.add(network)
+                plan.networks.create.add(network)
 
         # Delete networks found in mreg but not in import data
         for nw_addr, network in mreg_data.items():
             if nw_addr not in import_data:
-                networks.delete.add(network)
+                plan.networks.delete.add(network)
 
         # Check if a network slated for removal is an existing network
         # that is being resized via growing/shrinking its size
-        for existing in networks.delete:
-            for new in networks.create:
+        for existing in plan.networks.delete:
+            for new in plan.networks.create:
                 # FIXME: Ensure IP versions are identical
                 if existing.ip_network.subnet_of(new.ip_network):
-                    networks.grow[new].add(existing)
+                    plan.networks.grow[new].add(existing)
                 elif existing.ip_network.supernet_of(new.ip_network):
-                    networks.shrink[existing].add(new)
+                    plan.networks.shrink[existing].add(new)
 
         # Remove networks that are being resized from delete and create lists, and add to grow/shrink lists
-        for newnet, oldnets in networks.grow.items():
-            networks.delete -= oldnets
-            networks.create.remove(newnet)
-        for oldnet, newnets in networks.shrink.items():
-            self.check_removable(oldnet, newnets=newnets)
-            networks.delete.remove(oldnet)
-            networks.create -= newnets
+        for newnet, oldnets in plan.networks.grow.items():
+            plan.networks.delete -= oldnets
+            plan.networks.create.remove(newnet)
+        for oldnet, newnets in plan.networks.shrink.items():
+            self.check_removable(plan, oldnet, newnets=newnets)
+            plan.networks.delete.remove(oldnet)
+            plan.networks.create -= newnets
 
         # Check if networks marked for deletion is removable
-        for network in networks.delete:
-            self.check_removable(network)
+        for network in plan.networks.delete:
+            self.check_removable(plan, network)
 
-        if self.unremovable_networks:
-            exit_err("\n".join(str(n) for n in self.unremovable_networks))
+        # Exit with an error if any networks cannot be removed.
+        if plan.networks.unremovable:
+            exit_err("\n".join(str(n) for n in plan.networks.unremovable))
 
         # Check if networks marked for creation have any overlap with existing networks
         # We also check this serverside, but just in case...
-        for nw_new in networks.create:
-            for nw_existing in networks.keep:
+        for nw_new in plan.networks.create:
+            for nw_existing in plan.networks.keep:
                 if nw_new.ip_network.overlaps(
                     ipaddress.ip_network(nw_existing.ip_network)
                 ):
                     exit_err(
-                        f"Overlap found between new network {nw_new.network} "
-                        f"and existing network {nw_existing.network}"
+                        (
+                            f"Overlap found between new network {nw_new.network} "
+                            f"and existing network {nw_existing.network}"
+                        )
                     )
 
         # Check if existing networks need to be updated with new data
-        for network in networks.keep:
+        for network in plan.networks.keep:
             current_nw = mreg_data.get(network.network)
             new_nw = import_data.get(network.network)
 
@@ -530,14 +569,26 @@ class NetworkImport(CommandBase[NetworkStorage]):
                 "location": current_nw.location,
             }
             if any(current_data[key] != new_data[key] for key in new_data):
-                networks.patch.append((current_nw, new_data))
+                plan.networks.patch.append((current_nw, new_data))
 
-        return networks
+        return plan
 
     def check_removable(
-        self, oldnet: Network, newnets: set[ImportedNetwork] | None = None
-    ):
-        # An empty networks is obviously removable
+        self,
+        plan: SyncPlan,
+        oldnet: Network,
+        newnets: set[ImportedNetwork] | None = None,
+    ) -> None:
+        """Check if a network is safe to remove.
+
+        Exits with an error if network is not removable.
+
+        Args:
+            plan (SyncPlan): Plan containing networks to remove
+            oldnet (Network): Network to check
+            newnets (set[ImportedNetwork] | None, optional): New networks to replace old network with. Defaults to None.
+        """
+        # An empty network is obviously removable
         if self.is_empty_network(oldnet):
             return
 
@@ -547,6 +598,7 @@ class NetworkImport(CommandBase[NetworkStorage]):
         new_networks = set[IP_NetworkT](n.ip_network for n in newnets)
 
         def ips_not_in_newnets(ips: list[IP_AddressT]) -> set[IP_AddressT]:
+            """Filter a list of IP addresses to those _not_ in any of the new networks."""
             res = set[IP_AddressT]()
             for ip in ips:
                 ipaddr = ipaddress.ip_address(ip)
@@ -557,6 +609,8 @@ class NetworkImport(CommandBase[NetworkStorage]):
                     res.add(ip)
             return res
 
+        # TODO: re-use ptrs and used-list retrieved in `is_empty_network()`
+        # We re-fetch here, which is not ideal.
         ptr_list = oldnet.get_ptr_overrides()
         used_list = oldnet.get_used_list()
 
@@ -593,11 +647,11 @@ class NetworkImport(CommandBase[NetworkStorage]):
             if host_ips - ips or host_ptrs - ptrs:
                 for ip in host.ipaddresses:
                     if ip in ips:
-                        self.pending_deletions.mark_ip(host, ip)
+                        plan.hosts.mark_ip(host, ip)
                 for ptr in host.ptr_overrides:
                     ptr_ip = ptr.ipaddress
                     if ptr_ip in ptrs and ptr_ip not in host_ips:
-                        self.pending_deletions.mark_ptr(host, ptr)
+                        plan.hosts.mark_ptr(host, ptr)
                 continue
 
             # Hosts with associated DNS records will not be deleted
@@ -621,20 +675,27 @@ class NetworkImport(CommandBase[NetworkStorage]):
             if hostname in not_delete:
                 continue  # skip deletion
 
-            # FIXME: URGENT!! Ensure comparison of mreg_api models actually works!
+            # If all of the host's IPs and PTRs are slated for deletion,
+            # delete the host as well.
             if host_ips & ips == host_ips and host_ptrs & ptrs == host_ptrs:
-                self.pending_deletions.mark_host(host)
+                plan.hosts.mark_host(host)
 
         if not_delete:
             # TODO: refactor all this logic into UnremovableNetwork using tuple[str, list[str]]
             reasons = set[str]()
             for hostname, host_reasons in not_delete.items():
                 reasons.add(f"host {hostname}, reason(s): {', '.join(host_reasons)}")
-            self.unremovable_networks.append(
+            plan.networks.unremovable.append(
                 UnremovableNetwork(network=oldnet, reasons=reasons)
+            )
+            self.logger.error(
+                "Network cannot be removed due to associated hosts",
+                network=oldnet.network,
+                hosts=not_delete,
             )
 
     def is_empty_network(self, network: Network) -> bool:
+        """Determine if a network is empty."""
         used_list = network.get_used_list()
         ptr_list = network.get_ptr_overrides()
         if len(used_list) == 0 and len(ptr_list) == 0:
@@ -653,91 +714,31 @@ class NetworkImport(CommandBase[NetworkStorage]):
         self,
         mreg_networks: dict[str, Network],
         imported_networks: dict[str, ImportedNetwork],
-        ip_version: int,
+        ip_version: IP_VERSION,
     ) -> None:
-        # HACK FIXME: Due to copying the old structure that used globals,
-        # and rewriting it as a class, but not changing the logic, we need
-        # to reset the list of pending changes between IP versions here.
-        # This sucks! Either we never reset, or compare_with_mreg needs
-        # to return a data structure containing both host and network changes
-        #
-        # As it stands, `compare_with_mreg` ends up populating `pending_deletions`
-        # as a side-effect by calling `check_removable`, which is really Bad!
-        self.pending_deletions = PendingDeletions()
-
+        """Sync imported networks with MREG networks for a given IP version."""
         log = self.logger.bind(ip_version=ip_version)
         log.info("Comparing imported networks with MREG networks")
 
-        changes = self.compare_with_mreg(imported_networks, mreg_networks)
-        if changes.number_of_changes():
-            self.validate_network_change_size(ip_version, len(mreg_networks), changes)
-            self.update_mreg(changes)
+        plan = self.compare_with_mreg(imported_networks, mreg_networks, ip_version)
+        if plan.networks.number_of_changes():
+            self.validate_network_change_size(
+                ip_version, len(mreg_networks), plan.networks
+            )
+            self.update_mreg(plan)
             log.info("Updated networks")
         else:
             log.info("No changes for networks.")
 
-    def update_mreg(
-        self,
-        changes: NetworkModifications,
-    ) -> None:
-        for host in self.pending_deletions:
-            # NOTE: the original script deleted the host _then_ the records
-            # this would surely raise an exception in most cases due to a cascade
-            # deleting the associated records?
-            for ip in host.ips:
-                if not self.dryrun:
-                    ip.delete()
-                self.logger.info(f"Deleted ip {ip.ipaddress} from host {host.host.name}")
-            for ptr in host.ptrs:
-                if not self.dryrun:
-                    ptr.delete()
-                self.logger.info(
-                    f"Deleted ptr override {ptr.ipaddress} from host {host.host.name}"
-                )
-            # NOTE: Deleting the host _should_ trigger a cascade
-            # but in the rare cases where we delete a host, we might
-            # as well ensure we have deleted the associated records first!
-            if host.delete_host:
-                if not self.dryrun:
-                    host.host.delete()
-                self.logger.info(f"Deleted host {host.host.name}")
-
-        self.grow_networks(changes.grow)
-        self.shrink_networks(changes.shrink)
-
-        for network in changes.delete:
-            if not self.dryrun:
-                network.delete()
-            self.logger.info(
-                "Deleted network",
-                network=network.network,
-                description=network.description,
-            )
-        for network in sort_networks(changes.create):
-            if not self.command_config.dryrun:
-                self.client.network.create(network.asdict())
-            self.logger.info(
-                "Created network",
-                network=network.network,
-                description=network.description,
-            )
-        for network, new_data in changes.patch:
-            if not self.command_config.dryrun:
-                # FIXME: use ImportedNetwork.asdict() here instead of passing
-                # in a dict? Need to refactor NetworkModifications.patch for that.
-                network.patch(new_data)
-            self.logger.info(
-                "Updated network", network=network.network, new_data=new_data
-            )
-
     def validate_network_change_size(
-        self, ip_version: int, num_current: int, changes: NetworkModifications
+        self, ip_version: int, num_current: int, changes: NetworkChanges
     ):
         """Ensure number of network changes are within limits specified by command config."""
         changed = changes.number_of_changes()
         if num_current and changed != 0:
             diffsize = (changed / num_current) * 100
             if (
+                # Size exceeds limit and force is not enabled:
                 diffsize > self.command_config.max_size_change
                 and not self.command_config.ignore_size_change
             ):
@@ -748,15 +749,79 @@ class NetworkImport(CommandBase[NetworkStorage]):
                     )
                 )
             self.logger.info(
-                "Network change size check completed",
-                size=diffsize,
+                "Number of network changes within acceptable parameters",
+                size_percent=diffsize,
                 limit=self.command_config.max_size_change,
                 force=self.command_config.ignore_size_change,
             )
 
-    def grow_networks(self, grow: defaultdict[ImportedNetwork, set[Network]]):
+    def update_mreg(self, plan: SyncPlan) -> None:
+        """Update MREG according to the given sync plan.
+
+        Args:
+            plan (SyncPlan): Plan of changes to make in MREG.
+        """
+        self.delete_host_records(plan)
+        self.grow_networks(plan)
+        self.shrink_networks(plan)
+        self.delete_networks(plan)  # IMPORTANT: delete before creating new!
+        self.create_networks(plan)
+        self.patch_networks(plan)
+
+    def delete_host_records(self, plan: SyncPlan) -> None:
+        """Delete host records (IPs, PTRs, and hosts) according to the given sync plan."""
+        for host in plan.hosts:
+            log = self.logger.bind(hostname=host.host.name)
+
+            for ip in host.ips:
+                if not self.dryrun:
+                    ip.delete()
+                log.info("Deleted IP address", ipaddress=ip.ipaddress)
+            for ptr in host.ptrs:
+                if not self.dryrun:
+                    ptr.delete()
+                log.info("Deleted PTR override", ipaddress=ptr.ipaddress)
+            if host.delete_host:
+                if not self.dryrun:
+                    host.host.delete()
+                log.info("Deleted host")
+
+    def create_networks(self, plan: SyncPlan) -> None:
+        """Create new MREG networks according to the sync plan."""
+        for network in sort_networks(plan.networks.create):
+            if not self.command_config.dryrun:
+                self.client.network.create(network.asdict())
+            self.logger.info(
+                "Created network",
+                network=network.network,
+                description=network.description,
+            )
+
+    def delete_networks(self, plan: SyncPlan) -> None:
+        """Delete existing MREG networks according to the sync plan."""
+        for network in plan.networks.delete:
+            if not self.dryrun:
+                network.delete()
+            self.logger.info(
+                "Deleted network",
+                network=network.network,
+                description=network.description,
+            )
+
+    def patch_networks(self, plan: SyncPlan) -> None:
+        """Patch existing MREG networks according to the sync plan."""
+        for network, new_data in plan.networks.patch:
+            if not self.command_config.dryrun:
+                # TODO: use ImportedNetwork.asdict() here instead of passing
+                # in a dict? Need to refactor NetworkModifications.patch for that.
+                network.patch(new_data)
+            self.logger.info(
+                "Updated network", network=network.network, new_data=new_data
+            )
+
+    def grow_networks(self, plan: SyncPlan):
         """Grow existing networks to fit their new sizes in imported data."""
-        for newnet, oldnets in grow.items():
+        for newnet, oldnets in plan.networks.grow.items():
             log = self.logger.bind(newnet=newnet.network)
             if not oldnets:
                 log.error("No old networks found to grow from for new network")
@@ -767,14 +832,18 @@ class NetworkImport(CommandBase[NetworkStorage]):
             # to encompass the entire range.
             oldnets = sort_networks(oldnets)
             smallest_net = oldnets.pop()
-            # NOTE: Original comment left in place here:
-            # If the new network replaces multiple old ones, then first
-            # patch the range to a not-in-use range and then delete. To
-            # work around delete restrictions.
             for oldnet in oldnets:
+                # NOTE: Original comment left in place here:
+                # If the new network replaces multiple old ones, then first
+                # patch the range to a not-in-use range and then delete. To
+                # work around delete restrictions.
                 if not self.command_config.dryrun:
-                    # TODO: make dummy range configurable
-                    oldnet = oldnet.patch({"network": "255.255.255.0/32"})
+                    # NOTE: changed in mreg-tools v2: Only patches range if
+                    # we know we have an IPv4 network
+                    if oldnet.ip_network.version == 4:
+                        oldnet = oldnet.patch(
+                            {"network": self.command_config.dummy_range_ipv4}
+                        )
                     oldnet.delete()
                 log.info(
                     "Removed network to make room for larger network",
@@ -785,13 +854,13 @@ class NetworkImport(CommandBase[NetworkStorage]):
                 smallest_net.patch(newnet.asdict())
             log.info("Grew existing network.", oldnet=smallest_net.network)
 
-    def shrink_networks(self, shrink: defaultdict[Network, set[ImportedNetwork]]) -> None:
+    def shrink_networks(self, plan: SyncPlan) -> None:
         """Shrink existing networks to fit new imported networks.
 
         Creates new networks in the shrunk range if any imported networks overlap
         with the previous network's range.
         """
-        for oldnet, newnets in shrink.items():
+        for oldnet, newnets in plan.networks.shrink.items():
             log = self.logger.bind(oldnet=oldnet.network)
             if not newnets:
                 log.error("No new networks found to shrink to for old network")
