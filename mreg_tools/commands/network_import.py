@@ -399,7 +399,7 @@ class UnremovableNetwork:
     reasons: set[str]
 
     def __str__(self) -> str:
-        return f"Network {self.network.network} can not be removed due to:\n\t{'\n\t'.join(self.reasons)}"  # noqa: E501
+        return f"Network {self.network.network} can not be removed due to:\n\t{'\n\t'.join(sorted(self.reasons))}"  # noqa: E501
 
 
 @final
