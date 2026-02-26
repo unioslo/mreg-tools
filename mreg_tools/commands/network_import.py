@@ -665,10 +665,6 @@ class NetworkImport(CommandBase[NetworkStorage]):
         # as a side-effect by calling `check_removable`, which is really Bad!
         self.pending_deletions = PendingDeletions()
 
-        # Not technically guaranteed to have any MREG networks...
-        ip_version = (
-            next(iter(mreg_networks.values())).ip_network.version if mreg_networks else 0
-        )
         log = self.logger.bind(ip_version=ip_version)
         log.info("Comparing imported networks with MREG networks")
 
