@@ -23,14 +23,13 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import PydanticBaseSettingsSource
 from pydantic_settings import SettingsConfigDict
 from pydantic_settings import TomlConfigSettingsSource
-from rich.theme import Theme
 
 from mreg_tools.constants import DEFAULT_CONFIG_PATHS
 from mreg_tools.constants import DEFAULT_DESTDIR
 from mreg_tools.constants import DEFAULT_EXTRADIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
-from mreg_tools.output.style import CliTheme
+from mreg_tools.output.theme import CliTheme
 from mreg_tools.types import DhcpHostsType
 from mreg_tools.types import LDIFEntryValue
 from mreg_tools.types import LogLevel
@@ -746,8 +745,8 @@ class Config(BaseSettings):
             }
         )
 
-    def get_theme(self) -> Theme:
-        """Get the Rich CLI theme based on the configuration."""
-        from mreg_tools.output.style import get_theme
+    def get_theme(self) -> CliTheme:
+        """Get the CLI theme based on the configuration."""
+        from mreg_tools.output.theme import get_theme
 
         return get_theme(self.theme, self.themes)

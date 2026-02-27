@@ -18,6 +18,7 @@ from mreg_tools.types import LogLevel
 # typer app. If this import is removed, no commands will be registered
 # and the CLI will not work.
 from mreg_tools import commands  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from mreg_tools import _patches  # noqa: F401  # pyright: ignore[reportUnusedImport]
 # fmt: on
 
 
@@ -32,11 +33,11 @@ def main_callback(
     ] = None,
 ) -> None:
     conf = Config.load(config)
-    # NOTE: !!IMPORTANT!! Config must be set before anything else!
-    app.set_config(conf)
-
     if log_level is not None:
         conf.logging.level = LogLevel(log_level)
+
+    # NOTE: !!IMPORTANT!! Config must be set before anything else!
+    app.configure(conf)
 
     configure_logging(conf)
 

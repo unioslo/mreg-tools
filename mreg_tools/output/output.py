@@ -12,20 +12,56 @@ from rich.console import Console
 from rich.markup import escape as escape_markup
 from rich.markup import render
 
-from mreg_tools.output.style import DEFAULT_THEME
+from mreg_tools.output.theme import DEFAULT_THEME
+from mreg_tools.output.theme import CliTheme
 
 logger = structlog.stdlib.get_logger()
 
 
+def get_console(
+    *,
+    theme: CliTheme = DEFAULT_THEME,
+    stderr: bool = False,
+    highlight: bool = True,
+    soft_wrap: bool = False,
+) -> Console:
+    """Get a Rich Console object with the given theme.
+
+    Args:
+        theme (CliTheme): Theme to use for the console.
+        stderr (bool): Whether to output to stderr. Defaults to False.
+        highlight (bool): Whether to enable syntax highlighting. Defaults to True.
+        soft_wrap (bool): Whether to enable soft wrapping. Defaults to False.
+
+    Returns:
+        Console: A Rich Console object with the given theme.
+    """
+    from typer import rich_utils
+
+    return Console(
+        theme=theme.as_rich_theme(),
+        # Background NYI
+        # style=f"on {theme.background}" if theme.background else None,
+        highlighter=rich_utils.highlighter,
+        color_system=rich_utils.COLOR_SYSTEM,
+        force_terminal=rich_utils.FORCE_TERMINAL,
+        width=rich_utils.MAX_WIDTH,
+        stderr=stderr,
+        highlight=highlight,
+        soft_wrap=soft_wrap,
+    )
+
+
+# Default unconfigured console with default theme.
+# Once the config is loaded, this is replaced by a console with the configured theme.
 # stdout console used to print results
-console = Console(theme=DEFAULT_THEME)
+console = get_console()
 
 # stderr console used to print prompts, messages, etc.
-err_console = Console(
+err_console = get_console(
     stderr=True,
     highlight=False,
     soft_wrap=True,
-    theme=DEFAULT_THEME,
 )
 
 
