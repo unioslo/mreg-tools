@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import shlex
 from pathlib import Path
 from typing import Annotated
@@ -11,6 +10,7 @@ from typing import NamedTuple
 from typing import Self
 from typing import override
 
+import structlog.stdlib
 from pydantic import AfterValidator
 from pydantic import AliasChoices
 from pydantic import BaseModel
@@ -23,17 +23,19 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import PydanticBaseSettingsSource
 from pydantic_settings import SettingsConfigDict
 from pydantic_settings import TomlConfigSettingsSource
+from rich.theme import Theme
 
 from mreg_tools.constants import DEFAULT_CONFIG_PATHS
 from mreg_tools.constants import DEFAULT_DESTDIR
 from mreg_tools.constants import DEFAULT_EXTRADIR
 from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
+from mreg_tools.output.style import CliTheme
 from mreg_tools.types import DhcpHostsType
 from mreg_tools.types import LDIFEntryValue
 from mreg_tools.types import LogLevel
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger()
 
 
 def parse_mode_before(v: Any) -> int | None:
@@ -554,6 +556,14 @@ class Config(BaseSettings):
         default_factory=LoggingConfig,
         description="Logging configuration settings",
     )
+    theme: str = Field(
+        default="default",
+        description="Output theme (see mreg_tools.output.style.THEMES for available themes)",
+    )
+    themes: dict[str, CliTheme] = Field(
+        default_factory=dict,
+        description="Custom themes.",
+    )
 
     # Command-specific configurations
     get_dhcphosts: GetDhcpHostsConfig = Field(
@@ -735,3 +745,9 @@ class Config(BaseSettings):
                 "ldif": command_config.ldif,
             }
         )
+
+    def get_theme(self) -> Theme:
+        """Get the Rich CLI theme based on the configuration."""
+        from mreg_tools.output.style import get_theme
+
+        return get_theme(self.theme, self.themes)
