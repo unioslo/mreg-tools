@@ -18,7 +18,6 @@ from typing import final
 import structlog.stdlib
 from mreg_api import MregClient
 from mreg_api.types import QueryParams
-from pydantic import ValidationError
 from structlog.stdlib import BoundLogger
 
 from mreg_tools.api import get_client_and_login
@@ -29,7 +28,6 @@ from mreg_tools.config import CommandConfig
 from mreg_tools.config import Config
 from mreg_tools.config import ResolvedCommandConfig
 from mreg_tools.locks import lock_file
-from mreg_tools.output import error
 from mreg_tools.output import exit_err
 
 logger = structlog.stdlib.get_logger()
