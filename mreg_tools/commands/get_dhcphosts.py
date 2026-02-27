@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import io
 from collections import defaultdict
-from typing import Annotated, NamedTuple
+from collections.abc import Sequence
+from typing import Annotated
 from typing import Final
-from typing import Sequence
 from typing import final
 from typing import override
 
-from mreg_api.models.fields import MacAddress
-from mreg_api.types import IP_AddressT
 import structlog.stdlib
 import typer
 from mreg_api.models import DhcpHost
