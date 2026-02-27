@@ -6,14 +6,6 @@ from enum import StrEnum
 from typing import final
 
 from rich.theme import Theme
-from typer.rich_utils import STYLE_OPTION
-
-# NOTE: we define these enums to allow us to parse the markup text and
-#       correctly convert it to markdown in the docs. Without this, we would
-#       have to hard-code each style to correspond to a specific markdown formatting
-#       in the docs generator, which would be error-prone and difficult to maintain.
-#       E.g. [command]zabbix-cli hostgroup_remove foo[/] becomes `zabbix-cli hostgroup_remove foo`
-#       while [example]zabbix-cli --version[/] becomes ```\nzabbix-cli --version\n``` (code block)
 
 
 class CodeBlockStyle(StrEnum):
@@ -24,10 +16,6 @@ class CodeBlockStyle(StrEnum):
 
     EXAMPLE = "example"
     """An example command."""
-
-    # TODO: add language style here or as separate enum? if so, how to parse in docs?
-
-    # NOTE: add "code" style here or in CodeStyle?
 
 
 class CodeStyle(StrEnum):
@@ -71,7 +59,7 @@ class CliTheme:
 
     # Typer help/output styles
     CLI_COMMAND: str = "bold green"
-    CLI_OPTION: str = STYLE_OPTION
+    CLI_OPTION: str = "bold cyan"
     CLI_VALUE: str = "bold magenta"
     CONFIG_OPTION: str = "italic yellow"
     CODE: str = "bold green"
