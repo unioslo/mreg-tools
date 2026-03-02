@@ -100,13 +100,19 @@ class CliTheme(BaseModel):
             # Rich built-in styles
             "table.header": self.table_header or f"bold {self.primary}",
         }
-        if self.background:
-            styles["background"] = f"on {self.background}"
+        # Only add background if specified
+        if bg := self.background:
+            if not bg.startswith("on "):
+                bg = f"on {bg}"
+            styles["background"] = bg
         return Theme(styles)
 
 
 TyperTheme = CliTheme()
 
+
+# NOTE: These themes were vibe-coded by Claude.
+#       Their likeness to actual themes by the same names may vary.
 DarkPlus = CliTheme(
     primary="#4FC1FF",
     secondary="#CE9178",
@@ -255,6 +261,3 @@ def get_theme(name: str, extra: dict[str, CliTheme] | None = None) -> CliTheme:
         theme = DEFAULT_THEME
 
     return theme
-
-
-# New styles can inherit from CliTheme and override specific members if needed
