@@ -13,9 +13,21 @@ def _get_rich_console(stderr: bool = False) -> Console:  # pyright: ignore[repor
     return app.get_console()
 
 
-def patch_typer_styles(theme: Theme) -> None:
-    """Patch the Typer styles with the given theme."""
+def patch_typer_get_rich_console() -> None:
+    """Patch the Typer _get_rich_console function to return our configured console."""
+    typer.rich_utils._get_rich_console = _get_rich_console  # pyright: ignore[reportPrivateUsage]
 
+
+def patch_typer_styles(theme: Theme) -> None:
+    """Patch the default Typer styles with the given theme.
+
+    Typer uses a set of global styles defined in `typer.rich_utils`.
+    Even if we change the theme of the patched typer console we configure with
+    `patch_typer_get_rich_console`, the styles will still be the default Typer styles.
+
+    This patch ensures that the Typer styles are updated with the styles from
+    the theme passed to this function.
+    """
     typer.rich_utils.STYLE_OPTION = theme.styles.get("option") or "bold cyan"
     typer.rich_utils.STYLE_SWITCH = theme.styles.get("switch") or "bold green"
     typer.rich_utils.STYLE_NEGATIVE_OPTION = (
@@ -48,5 +60,5 @@ def patch_typer_styles(theme: Theme) -> None:
     typer.rich_utils.STYLE_ABORTED = "red"
 
 
-typer.rich_utils._get_rich_console = _get_rich_console  # pyright: ignore[reportPrivateUsage]
+patch_typer_get_rich_console()
 patch_typer_styles(DEFAULT_THEME.as_rich_theme())
