@@ -5,9 +5,12 @@ from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 
 from mreg_tools.config import ConsoleLoggingConfig
 from mreg_tools.config import FileLoggingConfig
+from mreg_tools.config import FileMode
 from mreg_tools.config import LdifSettings
 from mreg_tools.config import LoggingConfig
 from mreg_tools.types import LogLevel
@@ -185,3 +188,59 @@ def test_logging_config_explicit_handler_levels_override_main():
     )
     assert config.console.level == LogLevel.ERROR
     assert config.file.level == LogLevel.WARNING
+
+
+# TODO: combine the two file mode tests if possible
+
+
+@pytest.mark.parametrize(
+    "input_value, expected",
+    [
+        # Integers are interpreted as octal file modes
+        (644, 0o644),
+        (755, 0o755),
+        # Strings are parsed as octal literals
+        ("0o644", 0o644),
+        ("0o755", 0o755),
+    ],
+)
+@pytest.mark.parametrize("base_cls", [BaseModel, BaseSettings])
+def test_file_mode_field(
+    input_value: str | int,
+    expected: int,
+    base_cls: type[BaseModel],  # BaseSettings derives from BaseModel
+):
+    class TestConfig(base_cls):
+        mode: FileMode
+
+    config = TestConfig(mode=input_value)  # pyright: ignore[reportArgumentType]
+    assert config.mode == expected
+
+    # Test serialization
+    serialized = config.model_dump()
+    assert serialized["mode"] == expected
+
+
+@pytest.mark.parametrize(
+    "input_value, expected",
+    [
+        (None, None),
+        (644, 0o644),
+        ("0o644", 0o644),
+    ],
+)
+@pytest.mark.parametrize("base_cls", [BaseModel, BaseSettings])
+def test_file_mode_field_optional(
+    input_value: str | int | None,
+    expected: int | None,
+    base_cls: type[BaseModel],  # BaseSettings derives from BaseModel
+):
+    class TestConfig(base_cls):
+        mode: FileMode | None = None
+
+    config = TestConfig(mode=input_value)  # pyright: ignore[reportArgumentType]
+    assert config.mode == expected
+
+    # Test serialization
+    serialized = config.model_dump()
+    assert serialized["mode"] == expected

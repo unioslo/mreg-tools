@@ -37,10 +37,8 @@ from mreg_tools.types import LogLevel
 logger = structlog.stdlib.get_logger()
 
 
-def parse_mode_before(v: Any) -> int | None:
+def parse_file_mode_before(v: Any) -> int | Any:
     """Parse file mode from integer or octal string."""
-    if v is None:
-        return None
     if isinstance(v, int):
         try:
             return int(f"{v}", 8)
@@ -54,7 +52,7 @@ def parse_mode_before(v: Any) -> int | None:
     return v  # let pydantic handle the error
 
 
-ModeValue = Annotated[int | None, BeforeValidator(parse_mode_before)]
+FileMode = Annotated[int, BeforeValidator(parse_file_mode_before)]
 
 
 def to_path(value: Any) -> Path:
@@ -182,9 +180,9 @@ class CommandConfig(BaseModel):
         default=None,
         description="File encoding for output files",
     )
-    mode: ModeValue = Field(
+    mode: FileMode | None = Field(
         default=None,
-        description="File mode to set when creating files (e.g. 0o644).",
+        description="File mode to set when creating files (e.g. 644).",
     )
     max_line_change_percent: int | None = Field(
         default=None,
@@ -403,9 +401,9 @@ class DefaultConfig(BaseModel):
         default="utf-8",
         description="File encoding for output files",
     )
-    mode: ModeValue = Field(
+    mode: FileMode | None = Field(
         default=None,
-        description="File mode to set when creating files (e.g. 0o644).",
+        description="File mode to set when creating files (e.g. 644).",
     )
     max_line_change_percent: int | None = Field(
         default=None,
