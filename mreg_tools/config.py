@@ -632,8 +632,8 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(
         toml_file=["config.toml"],
         extra="ignore",
-        # Allows us to specify defaults for certain fields,
-        # while still allowing them to be overridden by the config file.
+        # Allows partially populated configs to use the field defaults
+        # for missing values when resolved by Pydantic.
         nested_model_default_partial_update=True,
     )
 
@@ -646,8 +646,7 @@ class Config(BaseSettings):
         * `get-zonefiles` -> `<workdir>/get-zonefiles` + `<destdir>/get-zonefiles`
         * etc.
 
-        Directories for commands can be explictly set in the config to override
-        these default directories.
+        Any subcommand configs with explicitly set directories will not be modified.
         """
         for field, field_info in self.__class__.model_fields.items():
             if (
