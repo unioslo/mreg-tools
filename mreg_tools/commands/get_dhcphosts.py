@@ -163,24 +163,28 @@ class GetDhcpHosts(CommandBase[DhcpHostStorage]):
 def main(
     force_check: Annotated[
         bool | None,
-        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
+        typer.Option("--force", "--force-check", help="Force refresh of data from mreg"),
     ] = None,
     ignore_size_change: Annotated[
         bool | None,
         typer.Option(
             "--ignore-size-change",
-            help="ignore size changes when writing the zone files",
+            help="Ignore size changes when writing the output files",
         ),
     ] = None,
     use_saved_data: Annotated[
         bool | None,
         typer.Option(
             "--use-saved-data",
-            help="force use saved data from previous runs. Takes precedence over --force",
+            help="Use saved data from previous runs. Takes precedence over --force",
         ),
     ] = None,
     hosts: Annotated[
-        DhcpHostsType | None, typer.Option("--hosts", help="which hosts to export")
+        DhcpHostsType | None,
+        typer.Option(
+            "--hosts",
+            help="IP version of hosts to export (ipv4, ipv6, ipv6byipv4)",
+        ),
     ] = None,
 ):
     # Get config and add overrides from command line

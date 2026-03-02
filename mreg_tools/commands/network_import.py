@@ -895,7 +895,11 @@ def main(
     ] = None,
     tagsfile: Annotated[
         Path | None,
-        typer.Option("--tagsfile", help="File with valid tags for network import"),
+        typer.Option(
+            "--tags-file",
+            "--tagsfile",
+            help="File with valid tags for network import",
+        ),
     ] = None,
     use_saved_data: Annotated[
         bool | None,
@@ -918,7 +922,11 @@ def main(
     ] = None,
     dryrun: Annotated[
         bool | None,
-        typer.Option("--dryrun", help="Dryrun"),
+        typer.Option(
+            "--dry-run",
+            "--dryrun",
+            help="Perform a dry run without making changes to mreg",
+        ),
     ] = None,
     max_size_change: Annotated[
         int | None,

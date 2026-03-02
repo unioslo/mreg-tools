@@ -101,14 +101,14 @@ def main(
         bool | None,
         typer.Option(
             "--use-saved-data",
-            help="Force use saved data from previous runs. Takes precedence over --force",
+            help="Use saved data from previous runs. Takes precedence over --force",
         ),
     ] = None,
     filename: Annotated[
         str | None,
         typer.Option(
             "--filename",
-            help="Filename for the output file",
+            help="Output filename",
         ),
     ] = None,
 ):

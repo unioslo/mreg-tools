@@ -163,27 +163,20 @@ class GetZoneFiles(CommandBase[ZoneDataStorage]):
 def main(
     force_check: Annotated[
         bool | None,
-        typer.Option("--force", "--force-check", help="force refresh of data from mreg"),
+        typer.Option("--force", "--force-check", help="Force refresh of data from mreg"),
     ] = None,
     ignore_size_change: Annotated[
         bool | None,
         typer.Option(
             "--ignore-size-change",
-            help="ignore size changes when writing the zone files",
+            help="Ignore size changes when writing the zone files",
         ),
     ] = None,
     use_saved_data: Annotated[
         bool | None,
         typer.Option(
             "--use-saved-data",
-            help="force use saved data from previous runs. Takes precedence over --force",
-        ),
-    ] = None,
-    filename: Annotated[
-        str | None,
-        typer.Option(
-            "--filename",
-            help="output filename for the zone files",
+            help="Use saved data from previous runs. Takes precedence over --force",
         ),
     ] = None,
 ):
@@ -195,8 +188,6 @@ def main(
         conf.get_zonefiles.ignore_size_change = ignore_size_change
     if use_saved_data is not None:
         conf.get_zonefiles.use_saved_data = use_saved_data
-    if filename is not None:
-        conf.get_zonefiles.filename = filename
 
     cmd = GetZoneFiles(conf)
     cmd()
