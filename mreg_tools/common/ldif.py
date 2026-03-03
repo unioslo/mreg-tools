@@ -61,17 +61,6 @@ def to_iso646_60(string: str | None) -> str:
     return "".join([tr.get(i, i) for i in string])
 
 
-def make_head_entry(cfg):
-    # FIXME: DEPRECATED! Remove after migrating LDIF commands to LDIFBase
-    head_entry = {}
-    for attr, value in cfg.items("ldif"):
-        # Convert a string tuple to an actual tuple
-        if value.startswith("(") and value.endswith(")"):
-            value = literal_eval(value)
-        head_entry[attr] = value
-    return head_entry
-
-
 class LDIFBase(CommandBase[DataT], ABC):
     """Base class for LDIF utilities.
 
