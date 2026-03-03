@@ -378,6 +378,19 @@ class NetworkLdifConfig(LDIFCommandConfig):
     )
 
 
+class ZoneImportConfig(CommandConfig):
+    """Configuration for zone-import command."""
+
+    zonefile: Path | None = Field(
+        default=None,
+        description="Path to the zone file or directory of files to import",
+    )
+    dryrun: bool = Field(
+        default=False,
+        description="Perform a dry run without making changes to MREG",
+    )
+
+
 class DefaultConfig(BaseModel):
     """Default configuration section."""
 
@@ -625,6 +638,10 @@ class Config(BaseSettings):
             ),
         ),
         validation_alias=AliasChoices("network-ldif", "network_ldif"),
+    )
+    zoneimport: ZoneImportConfig = Field(
+        default_factory=ZoneImportConfig,
+        validation_alias=AliasChoices("zoneimport", "zone-import", "zone_import"),
     )
 
     model_config = SettingsConfigDict(
