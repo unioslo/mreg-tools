@@ -77,7 +77,7 @@ class GetHostPolicy(CommandBase[HostDataStorage]):
         """Create the CSV file for atoms."""
         content = io.StringIO()
         for atom in atoms:
-            content.write(f"{atom.name};{atom.description};;{atom.created_at}\n")
+            content.write(f"{atom.name};{atom.description};;{atom.created_at.date()}\n")
         self.write(content, filename="atoms.csv")
 
     def create_policies_csv(
@@ -125,7 +125,7 @@ class GetHostPolicy(CommandBase[HostDataStorage]):
             content.write(
                 (
                     f"{role.name};{role.description};;"  # NOTE: why double ;;?
-                    f"{role.created_at};{','.join(role.atoms)}\n"
+                    f"{role.created_at.date()};{','.join(role.atoms)}\n"
                 )
             )
         self.write(content, filename="roles.csv")
