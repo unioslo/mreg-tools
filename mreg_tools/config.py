@@ -250,6 +250,10 @@ class GetDhcpHostsConfig(CommandConfig):
         description="Use DHCP option 79 (device hostname) instead of option 12 (host name) if available",
         validation_alias=AliasChoices("useOption79", "use_option79"),
     )
+    onefile: bool = Field(
+        default=True,
+        description="Combine all output into a single file",
+    )
 
 
 class GetHostinfoConfig(CommandConfig):
@@ -577,7 +581,7 @@ class Config(BaseSettings):
 
     # Command-specific configurations
     get_dhcphosts: GetDhcpHostsConfig = Field(
-        default_factory=GetDhcpHostsConfig,
+        default=GetDhcpHostsConfig(filename="hosts-{ip_version}.conf"),
         validation_alias=AliasChoices("get-dhcphosts", "get_dhcphosts"),
     )
     get_hostinfo: GetHostinfoConfig = Field(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from collections import defaultdict
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Annotated
 from typing import Final
 from typing import final
@@ -46,6 +47,14 @@ def mock_count() -> int:
     return 0
 
 
+def format_ip_version(hosts_type: DhcpHostsType) -> str:
+    """Format the DHCP host IP version for use in filenames."""
+    if hosts_type == DhcpHostsType.IPV6BYIPV4:
+        return "ipv6-by-ipv4"
+    else:
+        return hosts_type.value
+
+
 @final
 class GetDhcpHosts(CommandBase[DhcpHostStorage]):
     """get-dhcphosts command class."""
@@ -86,6 +95,8 @@ class GetDhcpHosts(CommandBase[DhcpHostStorage]):
             raise ValueError(f"Invalid hosts type: {hosts_type}")
 
         self.data = DhcpHostStorage(dhcp_hosts=dhcp_hosts)
+        self.added_hostnames = set[str]()
+        """Hostnames added to the output file(s). Ensures uniqueness when hosts have multiple IPs."""
 
     @override
     def should_run_postcommand(self) -> bool:
@@ -110,7 +121,6 @@ class GetDhcpHosts(CommandBase[DhcpHostStorage]):
         """Create the DHCP config files for all configured hosts."""
         # Categorize hosts by domain
         dhcphosts = defaultdict[str, list[DhcpHost]](list)
-        added = set[str]()
         for host in hosts:
             if host.zone is not None:
                 domain = host.zone
@@ -122,15 +132,25 @@ class GetDhcpHosts(CommandBase[DhcpHostStorage]):
                     domain = host.name
             dhcphosts[domain].append(host)
 
+        file = io.StringIO()
         for domain, hosts in dhcphosts.items():
-            self.create_dhcp_file_for_domain(domain, hosts)
+            file = self.populate_dhcp_file_for_domain(file, domain, hosts)
+            if not self.command_config.onefile:
+                self.write(file, filename=domain)
+                file = io.StringIO()  # Reset file for next domain
 
-    def create_dhcp_file_for_domain(self, domain: str, hosts: list[DhcpHost]) -> None:
+        if self.command_config.onefile:
+            filename = self.command_config.filename.format(
+                ip_version=format_ip_version(self.command_config.hosts)
+            )
+            self.write(file, filename=filename)
+
+    def populate_dhcp_file_for_domain(
+        self, file: io.StringIO, domain: str, hosts: list[DhcpHost]
+    ) -> io.StringIO:
         """Create the DHCP config file for a given domain."""
-        added = set[str]()
-        content = io.StringIO()
-        content.write("group { \n")
-        content.write(f'    option domain-name "{domain}";\n\n')
+        file.write("group { \n")
+        file.write(f'    option domain-name "{domain}";\n\n')
         for host in hosts:
             if host.ipaddress.version == 6 and self.command_config.use_option79:
                 # Handle IPv6 with v6relopt (RFC6939):
@@ -139,24 +159,24 @@ class GetDhcpHosts(CommandBase[DhcpHostStorage]):
                 # - '00:01' => ARP hardware type = 1 (Ethernet)
                 # - Followed by the actual 6-byte MAC
                 mac79 = ":".join(["0", "1", *host.macaddress.split(":")])
-                content.write(f"    host {host.name} {{\n")
-                content.write(
+                file.write(f"    host {host.name} {{\n")
+                file.write(
                     f"        host-identifier v6relopt 1 dhcp6.client-linklayer-addr {mac79};\n"
                 )
-                content.write(f"        fixed-address6 {host.ipaddress};\n")
-                content.write("    }\n")
+                file.write(f"        fixed-address6 {host.ipaddress};\n")
+                file.write("    }\n")
             else:
-                if host.name in added:
+                if host.name in self.added_hostnames:
                     # If the hostname is already added, we need to make it unique by appending the MAC address without colons
                     host_name = f"{host.name}-{host.macaddress.replace(':', '')}"
                 else:
                     host_name = host.name
-                    added.add(host_name)
-                content.write(
+                    self.added_hostnames.add(host_name)
+                file.write(
                     f"    host {host_name} {{ hardware ethernet {host.macaddress}; fixed-address{'6' if host.ipaddress.version == 6 else ''} {host.ipaddress}; }}\n"
                 )
-        content.write("}\n")
-        self.write(content, filename=domain)
+        file.write("}\n")
+        return file
 
 
 @app.command(COMMAND_NAME, help="Create dhcp config from mreg.")
@@ -186,6 +206,25 @@ def main(
             help="IP version of hosts to export (ipv4, ipv6, ipv6byipv4)",
         ),
     ] = None,
+    onefile: Annotated[
+        bool | None,
+        typer.Option(
+            "--onefile/--no-onefile",
+            "--one-file/--no-one-file",
+            help="Combine all output into a single file",
+        ),
+    ] = None,
+    filename: Annotated[
+        str | None,
+        typer.Option(
+            "--filename",
+            help="Filename for combined output (only used with --onefile)",
+        ),
+    ] = None,
+    destdir: Annotated[
+        Path | None,
+        typer.Option("--destdir", help="Destination directory for output files"),
+    ] = None,
 ):
     # Get config and add overrides from command line
     conf = app.get_config()
@@ -197,6 +236,12 @@ def main(
         conf.get_dhcphosts.use_saved_data = use_saved_data
     if hosts is not None:
         conf.get_dhcphosts.hosts = hosts
+    if onefile is not None:
+        conf.get_dhcphosts.onefile = onefile
+    if destdir is not None:
+        conf.get_dhcphosts.destdir = destdir
+    if filename is not None:
+        conf.get_dhcphosts.filename = filename
     cmd = GetDhcpHosts(conf)
     cmd()
 
