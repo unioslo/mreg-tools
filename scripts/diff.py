@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 from typing import NamedTuple
@@ -17,11 +18,25 @@ from mreg_tools.config import ResolvedPath
 app = Typer(name="diff", help="Compare output files from old and new scripts.")
 
 
+class Command(StrEnum):
+    """Name of commands to run and compare output for."""
+
+    GET_DHCPHOSTS = "get-dhcphosts"
+    GET_HOSTINFO = "get-hostinfo"
+    GET_HOSTPOLICY = "get-hostpolicy"
+    GET_ZONEFILES = "get-zonefiles"
+    HOSTGROUP_LDIF = "hostgroup-ldif"
+    HOSTS_LDIF = "hosts-ldif"
+    NETWORK_LDIF = "network-ldif"
+    # NETWORK_IMPORT = "network-import"
+
+
 class CommandSpec(BaseModel):
     """A command to run and the directory where it writes output."""
 
     command: list[str | Path]
     destdir: ResolvedPath
+    encoding: str = "utf-8"
 
     @property
     def command_args(self) -> list[str]:
@@ -55,9 +70,9 @@ NEW_DESTDIR = NEW_DIR / "dstdir"
 NEW_WORKDIR = NEW_DIR / "workdir"
 
 
-commands = [
+ALL_COMMANDS: dict[Command, DiffTarget] = {
     # DHCP (multi file)
-    DiffTarget(
+    Command.GET_DHCPHOSTS: DiffTarget(
         name="get-dhcphosts (ipv4) (multi file)",
         new=CommandSpec(
             command=[
@@ -79,10 +94,10 @@ commands = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv4.conf",
                 "--force",
             ],
-            destdir=OLD_DESTDIR / "dhcp/ipv4",
+            destdir=OLD_DESTDIR / "get-dhcphosts/ipv4",
         ),
     ),
-    DiffTarget(
+    Command.GET_DHCPHOSTS: DiffTarget(
         name="get-dhcphosts (ipv6) (multi file)",
         new=CommandSpec(
             command=[
@@ -104,10 +119,10 @@ commands = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv6.conf",
                 "--force",
             ],
-            destdir=OLD_DESTDIR / "dhcp/ipv6",
+            destdir=OLD_DESTDIR / "get-dhcphosts/ipv6",
         ),
     ),
-    DiffTarget(
+    Command.GET_DHCPHOSTS: DiffTarget(
         name="get-dhcphosts (ipv6 by ipv4) (multi file)",
         new=CommandSpec(
             command=[
@@ -129,11 +144,11 @@ commands = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv6-by-ipv4.conf",
                 "--force",
             ],
-            destdir=OLD_DESTDIR / "dhcp/ipv6byipv4",
+            destdir=OLD_DESTDIR / "get-dhcphosts/ipv6byipv4",
         ),
     ),
     # DHCP (one file)
-    DiffTarget(
+    Command.GET_DHCPHOSTS: DiffTarget(
         name="get-dhcphosts (ipv4) (onefile)",
         new=CommandSpec(
             command=[
@@ -156,10 +171,10 @@ commands = [
                 "--force",
                 "--one-file",
             ],
-            destdir=OLD_DESTDIR / "dhcp/ipv4/onefile",
+            destdir=OLD_DESTDIR / "get-dhcphosts/ipv4/onefile",
         ),
     ),
-    DiffTarget(
+    Command.GET_DHCPHOSTS: DiffTarget(
         name="get-dhcphosts (ipv6) (onefile)",
         new=CommandSpec(
             command=[
@@ -182,10 +197,10 @@ commands = [
                 "--force",
                 "--one-file",
             ],
-            destdir=OLD_DESTDIR / "dhcp/ipv6/onefile",
+            destdir=OLD_DESTDIR / "get-dhcphosts/ipv6/onefile",
         ),
     ),
-    DiffTarget(
+    Command.GET_DHCPHOSTS: DiffTarget(
         name="get-dhcphosts (ipv6 by ipv4) (onefile)",
         new=CommandSpec(
             command=[
@@ -208,10 +223,31 @@ commands = [
                 "--force",
                 "--one-file",
             ],
-            destdir=OLD_DESTDIR / "dhcp/ipv6byipv4/onefile",
+            destdir=OLD_DESTDIR / "get-dhcphosts/ipv6byipv4/onefile",
         ),
     ),
-    DiffTarget(
+    # Host policy
+    Command.GET_HOSTPOLICY: DiffTarget(
+        name="get-hostpolicy",
+        new=CommandSpec(
+            command=["mreg-tools", "get-hostpolicy"],
+            destdir=NEW_DESTDIR / "get-hostpolicy",
+            encoding="latin-1",
+        ),
+        old=CommandSpec(
+            command=[
+                "python",
+                OLD_DIR / "get-hostpolicy/get-hostpolicy.py",
+                "--config",
+                OLD_DIR / "get-hostpolicy/get-hostpolicy.conf",
+                "--force",
+            ],
+            destdir=OLD_DESTDIR / "get-hostpolicy",
+            encoding="latin-1",
+        ),
+    ),
+    # Zone
+    Command.GET_ZONEFILES: DiffTarget(
         name="get-zonefiles",
         new=CommandSpec(
             command=["mreg-tools", "get-zonefiles"],
@@ -224,17 +260,21 @@ commands = [
                 "--config",
                 OLD_DIR / "get-zonefiles/get-zonefiles.conf",
             ],
-            destdir=OLD_DESTDIR / "zones",
+            destdir=OLD_DESTDIR / "get-zonefiles",
         ),
     ),
-]
+}
 
 console = Console()
 
 
-def normalize(path: Path) -> list[str]:
+def normalize(path: Path, encoding: str = "utf-8") -> list[str]:
     """Remove empty lines, leading/trailing whitespace, and sort lines for consistent comparison."""
-    return sorted(line.strip() for line in path.read_text().splitlines() if line.strip())
+    return sorted(
+        line.strip()
+        for line in path.read_text(encoding=encoding).splitlines()
+        if line.strip()
+    )
 
 
 @final
@@ -296,8 +336,8 @@ class Differ:
 
         diffs = 0
         for name in sorted(common):
-            old_lines = normalize(self.old.destdir / name)
-            new_lines = normalize(self.new.destdir / name)
+            old_lines = normalize(self.old.destdir / name, self.old.encoding)
+            new_lines = normalize(self.new.destdir / name, self.new.encoding)
             if old_lines != new_lines:
                 diffs += 1
                 console.print(f"DIFF: {name}", style="bold red")
@@ -334,23 +374,33 @@ def main(
         bool,
         typer.Option(
             "--run-commands/--no-run-commands",
-            help="Whether to run the commands before diffing",
+            help="Run the commands before diffing output",
         ),
     ] = True,
     wipe_workdirs: Annotated[
         bool,
         typer.Option(
             "--wipe-workdirs/--no-wipe-workdirs",
-            help="Whether to wipe the workdirs before running commands",
+            help="Wipe the workdirs before running commands",
         ),
     ] = True,
     wipe_destdirs: Annotated[
         bool,
         typer.Option(
             "--wipe-destdirs/--no-wipe-destdirs",
-            help="Whether to wipe the destdirs before running commands",
+            help="Wipe the destdirs before running commands",
         ),
     ] = True,
+    commands: Annotated[
+        list[Command],
+        typer.Option(
+            "--commands",
+            "--command",
+            "-C",
+            help="Which commands to compare (default: all)",
+            show_default=False,
+        ),
+    ] = list(Command),
 ) -> None:
     if run_commands:
         if wipe_workdirs:
@@ -360,7 +410,9 @@ def main(
             for destdir in [OLD_DESTDIR, NEW_DESTDIR]:
                 delete_directory(destdir)
 
-    for target in commands:
+    to_run = [ALL_COMMANDS[cmd] for cmd in commands]
+
+    for target in to_run:
         differ = Differ(target, run_commands=run_commands)
         differ.diff()
 
