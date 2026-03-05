@@ -402,33 +402,35 @@ class Differ:
             return
 
         old_files = {
-            f.name
+            f.name: f
             for f in self.old.destdir.iterdir()
             if f.is_file() and not f.name.endswith("_old")
         }
         new_files = {
-            f.name
+            f.name: f
             for f in self.new.destdir.iterdir()
             if f.is_file() and not f.name.endswith("_old")
         }
-        only_old = old_files - new_files
-        only_new = new_files - old_files
-        common = old_files & new_files
+        only_old = old_files.keys() - new_files.keys()
+        only_new = new_files.keys() - old_files.keys()
+        common = old_files.keys() & new_files.keys()
 
         if only_old:
             console.print(f"Only in old ({len(only_old)}):", style="yellow")
             for name in sorted(only_old):
-                console.print(f"  {name}", style="yellow")
+                if old := old_files.get(name):
+                    console.print(f"  {old}", style="yellow")
 
         if only_new:
             console.print(f"Only in new ({len(only_new)}):", style="cyan")
             for name in sorted(only_new):
-                console.print(f"  {name}", style="cyan")
+                if new := new_files.get(name):
+                    console.print(f"  {new}", style="cyan")
 
         diffs = 0
         for name in sorted(common):
-            old_filename = self.old.destdir / name
-            new_filename = self.new.destdir / name
+            old_filename = old_files[name]
+            new_filename = new_files[name]
             old_lines = normalize(old_filename, self.old.encoding)
             new_lines = normalize(new_filename, self.new.encoding)
             if old_lines != new_lines:
