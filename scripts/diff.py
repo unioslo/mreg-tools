@@ -1,6 +1,9 @@
 """Compare files produced by old and new scripts to verify they produce the same output."""
 
+from __future__ import annotations
+
 import os
+import shutil
 import subprocess
 from enum import StrEnum
 from pathlib import Path
@@ -458,15 +461,10 @@ class Differ:
 
 
 def delete_directory(path: Path) -> None:
-    """Delete all files in the given directory."""
+    """Recursively delete a directory (equivalent to rm -rf)."""
     if path.exists() and path.is_dir():
         console.print(f"Deleting directory {path}", style="yellow")
-        for f in path.iterdir():
-            if f.is_file():
-                f.unlink()
-            elif f.is_dir():
-                delete_directory(f)
-        path.rmdir()
+        shutil.rmtree(path)
 
 
 @app.command()
@@ -493,7 +491,7 @@ def main(
         ),
     ] = True,
     commands: Annotated[
-        list[Command],
+        list[Command] | None,
         typer.Option(
             "--commands",
             "--command",
@@ -501,8 +499,11 @@ def main(
             help="Which commands to compare (default: all)",
             show_default=False,
         ),
-    ] = list(Command),
+    ] = None,
 ) -> None:
+    # Only wipe directories if we are going to run commands
+    # It makes no sense to wipe directories if we are just comparing
+    # existing output files.
     if run_commands:
         if wipe_workdirs:
             for workdir in [OLD_WORKDIR, NEW_WORKDIR]:
@@ -510,6 +511,10 @@ def main(
         if wipe_destdirs:
             for destdir in [OLD_DESTDIR, NEW_DESTDIR]:
                 delete_directory(destdir)
+
+    # Compare all commands if not narrowed down by --commands
+    if not commands:
+        commands = list(Command)
 
     to_run = [cmd for cmd in ALL_COMMANDS if cmd.command in commands]
 
