@@ -5,7 +5,6 @@ import re
 import sys
 from abc import ABC
 from abc import abstractmethod
-from ast import literal_eval
 from base64 import b64encode
 from functools import cached_property
 from typing import override
@@ -72,7 +71,7 @@ class LDIFBase(CommandBase[DataT], ABC):
     @abstractmethod
     @override
     def command_config(self) -> LDIFCommandConfig:
-        """Raw command config section (e.g. HostsLdifConfig)."""
+        """Raw LDIF command config section (e.g. HostsLdifConfig)."""
         ...
 
     @abstractmethod

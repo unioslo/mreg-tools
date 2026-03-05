@@ -93,8 +93,10 @@ class HostGroupLDIF(LDIFBase[HostGroupDataStorage]):
         return ldifs
 
     def hostgroup_to_ldif_entry(self, hostgroup: HostGroup) -> HostGroupLdifEntry:
-        # Determine description before creating the entry to guarantee
-        # ordering of fields, so we maintain parity with the old script
+        """Create an LDIF entry for a host group."""
+        # NOTE: We determine the description here, so we can add it
+        # to the dict literal below. This maintains field order parity with
+        # the old script.
         if hostgroup.description:
             if self.config.encoding == "ascii":
                 description = to_iso646_60(hostgroup.description)
