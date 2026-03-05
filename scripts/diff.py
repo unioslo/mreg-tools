@@ -454,6 +454,7 @@ class Differ:
             if old_lines != new_lines:
                 diffs += 1
                 console.print(f"DIFF: {name}", style="bold red")
+                console.line()
                 old_set = set(old_lines)
                 new_set = set(new_lines)
 
