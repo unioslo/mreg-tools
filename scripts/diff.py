@@ -394,8 +394,23 @@ class Differ:
     def diff(self) -> None:
         console.rule(self.name)
         if self.run_commands:
-            self.run_command(self.new)
+            # We show changes to old first, therefore we should run
+            # old command before new, so that any changes to new files
+            # (highlighted in green) show resources that were added/changed
+            # between running old and new, rather than vice versa.
+            #
+            # I.e. most changes should come down to:
+            #   green + -> added/changed resource in MREG
+            #   red - -> removed/changed resource in MREG
+            #
+            # This should make it easier to determine if scripts produce
+            # different output because of semantic differences in the scripts,
+            # or if it's because of upstream MREG changes.
+            #
+            # I'm somehow failing to explain this in a concise way,
+            # but trust me, this ordering makes the diff output easier to grok.
             self.run_command(self.old)
+            self.run_command(self.new)
 
         if not self.old.destdir.exists():
             console.print(f"Old directory {self.old.destdir} does not exist", style="red")
