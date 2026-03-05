@@ -51,6 +51,7 @@ class DiffTarget(NamedTuple):
     """A pair of new/old command specs to compare."""
 
     name: str
+    command: Command
     new: CommandSpec
     old: CommandSpec
 
@@ -70,10 +71,11 @@ NEW_DESTDIR = NEW_DIR / "dstdir"
 NEW_WORKDIR = NEW_DIR / "workdir"
 
 
-ALL_COMMANDS: dict[Command, DiffTarget] = {
+ALL_COMMANDS: list[DiffTarget] = [
     # DHCP (multi file)
-    Command.GET_DHCPHOSTS: DiffTarget(
+    DiffTarget(
         name="get-dhcphosts (ipv4) (multi file)",
+        command=Command.GET_DHCPHOSTS,
         new=CommandSpec(
             command=[
                 "mreg-tools",
@@ -97,8 +99,9 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv4",
         ),
     ),
-    Command.GET_DHCPHOSTS: DiffTarget(
+    DiffTarget(
         name="get-dhcphosts (ipv6) (multi file)",
+        command=Command.GET_DHCPHOSTS,
         new=CommandSpec(
             command=[
                 "mreg-tools",
@@ -122,8 +125,9 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv6",
         ),
     ),
-    Command.GET_DHCPHOSTS: DiffTarget(
+    DiffTarget(
         name="get-dhcphosts (ipv6 by ipv4) (multi file)",
+        command=Command.GET_DHCPHOSTS,
         new=CommandSpec(
             command=[
                 "mreg-tools",
@@ -148,8 +152,9 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
         ),
     ),
     # DHCP (one file)
-    Command.GET_DHCPHOSTS: DiffTarget(
+    DiffTarget(
         name="get-dhcphosts (ipv4) (onefile)",
+        command=Command.GET_DHCPHOSTS,
         new=CommandSpec(
             command=[
                 "mreg-tools",
@@ -174,8 +179,9 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv4/onefile",
         ),
     ),
-    Command.GET_DHCPHOSTS: DiffTarget(
+    DiffTarget(
         name="get-dhcphosts (ipv6) (onefile)",
+        command=Command.GET_DHCPHOSTS,
         new=CommandSpec(
             command=[
                 "mreg-tools",
@@ -200,7 +206,8 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv6/onefile",
         ),
     ),
-    Command.GET_DHCPHOSTS: DiffTarget(
+    DiffTarget(
+        command=Command.GET_DHCPHOSTS,
         name="get-dhcphosts (ipv6 by ipv4) (onefile)",
         new=CommandSpec(
             command=[
@@ -226,8 +233,91 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv6byipv4/onefile",
         ),
     ),
+    # LDIF
+    DiffTarget(
+        command=Command.HOSTGROUP_LDIF,
+        name="hostgroup-ldif",
+        new=CommandSpec(
+            command=["mreg-tools", "hostgroup-ldif"],
+            destdir=NEW_DESTDIR / "hostgroup-ldif",
+            encoding="latin-1",
+        ),
+        old=CommandSpec(
+            command=[
+                "python",
+                OLD_DIR / "hostgroup-ldif/hostgroup-ldif.py",
+                "--config",
+                OLD_DIR / "hostgroup-ldif/hostgroup-ldif.conf",
+                "--force",
+            ],
+            destdir=OLD_DESTDIR / "hostgroup-ldif",
+            encoding="latin-1",
+        ),
+    ),
+    DiffTarget(
+        command=Command.HOSTS_LDIF,
+        name="hosts-ldif",
+        new=CommandSpec(
+            command=["mreg-tools", "hosts-ldif"],
+            destdir=NEW_DESTDIR / "hosts-ldif",
+            # encoding="latin-1",
+        ),
+        old=CommandSpec(
+            command=[
+                "python",
+                OLD_DIR / "hosts-ldif/hosts-ldif.py",
+                "--config",
+                OLD_DIR / "hosts-ldif/hosts-ldif.conf",
+                # "--force-check",
+            ],
+            destdir=OLD_DESTDIR / "hosts-ldif",
+            # encoding="latin-1",
+        ),
+    ),
+    DiffTarget(
+        command=Command.NETWORK_LDIF,
+        name="network-ldif",
+        new=CommandSpec(
+            command=["mreg-tools", "network-ldif"],
+            destdir=NEW_DESTDIR / "network-ldif",
+            # encoding="latin-1",
+        ),
+        old=CommandSpec(
+            command=[
+                "python",
+                OLD_DIR / "network-ldif/network-ldif.py",
+                "--config",
+                OLD_DIR / "network-ldif/network-ldif.conf",
+                # "--force-check",
+            ],
+            destdir=OLD_DESTDIR / "network-ldif",
+            # encoding="latin-1",
+        ),
+    ),
+    # Host info
+    DiffTarget(
+        command=Command.GET_HOSTINFO,
+        name="get-hostinfo",
+        new=CommandSpec(
+            command=["mreg-tools", "get-hostinfo"],
+            destdir=NEW_DESTDIR / "get-hostinfo",
+            encoding="latin-1",
+        ),
+        old=CommandSpec(
+            command=[
+                "python",
+                OLD_DIR / "get-hostinfo/get-hostinfo.py",
+                "--config",
+                OLD_DIR / "get-hostinfo/get-hostinfo.conf",
+                "--force",
+            ],
+            destdir=OLD_DESTDIR / "get-hostinfo",
+            encoding="latin-1",
+        ),
+    ),
     # Host policy
-    Command.GET_HOSTPOLICY: DiffTarget(
+    DiffTarget(
+        command=Command.GET_HOSTPOLICY,
         name="get-hostpolicy",
         new=CommandSpec(
             command=["mreg-tools", "get-hostpolicy"],
@@ -247,7 +337,8 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
         ),
     ),
     # Zone
-    Command.GET_ZONEFILES: DiffTarget(
+    DiffTarget(
+        command=Command.GET_ZONEFILES,
         name="get-zonefiles",
         new=CommandSpec(
             command=["mreg-tools", "get-zonefiles"],
@@ -263,9 +354,9 @@ ALL_COMMANDS: dict[Command, DiffTarget] = {
             destdir=OLD_DESTDIR / "get-zonefiles",
         ),
     ),
-}
+]
 
-console = Console()
+console = Console(highlight=False)
 
 
 def normalize(path: Path, encoding: str = "utf-8") -> list[str]:
@@ -336,15 +427,23 @@ class Differ:
 
         diffs = 0
         for name in sorted(common):
-            old_lines = normalize(self.old.destdir / name, self.old.encoding)
-            new_lines = normalize(self.new.destdir / name, self.new.encoding)
+            old_filename = self.old.destdir / name
+            new_filename = self.new.destdir / name
+            old_lines = normalize(old_filename, self.old.encoding)
+            new_lines = normalize(new_filename, self.new.encoding)
             if old_lines != new_lines:
                 diffs += 1
                 console.print(f"DIFF: {name}", style="bold red")
                 old_set = set(old_lines)
                 new_set = set(new_lines)
+
+                console.print(f"[bold red]{old_filename}[/]")
                 for line in sorted(old_set - new_set):
                     console.print(f"  - {line}", style="red")
+
+                console.line()
+
+                console.print(f"[bold green]{new_filename}[/]")
                 for line in sorted(new_set - old_set):
                     console.print(f"  + {line}", style="green")
 
@@ -410,7 +509,7 @@ def main(
             for destdir in [OLD_DESTDIR, NEW_DESTDIR]:
                 delete_directory(destdir)
 
-    to_run = [ALL_COMMANDS[cmd] for cmd in commands]
+    to_run = [cmd for cmd in ALL_COMMANDS if cmd.command in commands]
 
     for target in to_run:
         differ = Differ(target, run_commands=run_commands)
