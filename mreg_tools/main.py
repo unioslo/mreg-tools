@@ -9,6 +9,7 @@ import typer
 
 from mreg_tools.app import app
 from mreg_tools.config import Config
+from mreg_tools.exceptions import handle_exception
 from mreg_tools.logs import configure_logging
 from mreg_tools.types import LogLevel
 
@@ -43,7 +44,10 @@ def main_callback(
 
 
 def main():
-    app()
+    try:
+        app()
+    except Exception as e:
+        handle_exception(e)
 
 
 if __name__ == "__main__":
