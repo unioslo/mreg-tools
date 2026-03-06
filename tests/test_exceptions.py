@@ -19,7 +19,6 @@ from mreg_tools.exceptions import handle_exception
         LockFileError,
         LockFileInUseError,
         DiffError,
-        # ValueError,
     ],
 )
 def test_handle_exceptions_known(e: type[Exception], capsys: pytest.CaptureFixture[str]):
