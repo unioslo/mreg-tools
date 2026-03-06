@@ -20,7 +20,7 @@ from typer import Typer
 from mreg_tools.config import ResolvedPath
 
 app = Typer(name="diff", help="Compare output files from old and new scripts.")
-console = Console(highlight=False)
+console = Console(highlight=False, emoji=False)
 
 os.chdir(
     Path(__file__).parent.parent
