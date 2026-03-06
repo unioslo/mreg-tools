@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -19,6 +20,21 @@ from typer import Typer
 from mreg_tools.config import ResolvedPath
 
 app = Typer(name="diff", help="Compare output files from old and new scripts.")
+console = Console(highlight=False)
+
+os.chdir(
+    Path(__file__).parent.parent
+)  # Ensure consistent working directory for relative paths
+
+
+# TODO: make base paths configurable
+OLD_DIR = Path(".dev/old")
+OLD_DESTDIR = OLD_DIR / "dirs/destdir"
+OLD_WORKDIR = OLD_DIR / "dirs/workdir"
+
+NEW_DIR = Path(".dev/dirs")
+NEW_DESTDIR = NEW_DIR / "dstdir"
+NEW_WORKDIR = NEW_DIR / "workdir"
 
 
 class Command(StrEnum):
@@ -50,6 +66,35 @@ class CommandSpec(BaseModel):
         return " ".join(self.command_args)
 
 
+@dataclass(frozen=True)
+class CommandInfo:
+    """Metadata about commands, such as which flags they support."""
+
+    supports_force: bool = False
+    supports_force_check: bool = False
+    supports_ignore_size_change: bool = False
+    supports_use_saved_data: bool = False
+
+
+_COMMAND_INFO = {
+    Command.GET_DHCPHOSTS: CommandInfo(supports_force=True),
+    Command.GET_HOSTINFO: CommandInfo(supports_force=True),
+    Command.GET_HOSTPOLICY: CommandInfo(supports_force=True),
+    Command.GET_ZONEFILES: CommandInfo(),
+    Command.HOSTGROUP_LDIF: CommandInfo(supports_force=True),
+    Command.HOSTS_LDIF: CommandInfo(
+        supports_force_check=True,  # --force-check not --force
+        supports_ignore_size_change=True,
+        supports_use_saved_data=True,
+    ),
+    Command.NETWORK_LDIF: CommandInfo(
+        supports_force_check=True,  # --force-check not --force
+        supports_ignore_size_change=True,
+    ),
+    # Command.NETWORK_IMPORT: CommandInfo(),
+}
+
+
 class DiffTarget(NamedTuple):
     """A pair of new/old command specs to compare."""
 
@@ -58,20 +103,12 @@ class DiffTarget(NamedTuple):
     new: CommandSpec
     old: CommandSpec
 
-
-os.chdir(
-    Path(__file__).parent.parent
-)  # Ensure consistent working directory for relative paths
-
-
-# TODO: make base paths configurable
-OLD_DIR = Path(".dev/old")
-OLD_DESTDIR = OLD_DIR / "dirs/destdir"
-OLD_WORKDIR = OLD_DIR / "dirs/workdir"
-
-NEW_DIR = Path(".dev/dirs")
-NEW_DESTDIR = NEW_DIR / "dstdir"
-NEW_WORKDIR = NEW_DIR / "workdir"
+    @property
+    def info(self) -> CommandInfo:
+        """Return metadata about the command."""
+        # No new commands will ever be added, so we can just do
+        # direct lookup here without worrying about missing entries.
+        return _COMMAND_INFO[self.command]
 
 
 ALL_COMMANDS: list[DiffTarget] = [
@@ -97,7 +134,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts.py",
                 "--config",
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv4.conf",
-                "--force",
             ],
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv4",
         ),
@@ -123,7 +159,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts.py",
                 "--config",
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv6.conf",
-                "--force",
             ],
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv6",
         ),
@@ -149,7 +184,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts.py",
                 "--config",
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv6-by-ipv4.conf",
-                "--force",
             ],
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv6byipv4",
         ),
@@ -176,7 +210,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts.py",
                 "--config",
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv4-onefile.conf",
-                "--force",
                 "--one-file",
             ],
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv4/onefile",
@@ -203,7 +236,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts.py",
                 "--config",
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv6-onefile.conf",
-                "--force",
                 "--one-file",
             ],
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv6/onefile",
@@ -230,7 +262,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-dhcphosts/get-dhcphosts.py",
                 "--config",
                 OLD_DIR / "get-dhcphosts/get-dhcphosts-ipv6-by-ipv4-onefile.conf",
-                "--force",
                 "--one-file",
             ],
             destdir=OLD_DESTDIR / "get-dhcphosts/ipv6byipv4/onefile",
@@ -251,7 +282,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "hostgroup-ldif/hostgroup-ldif.py",
                 "--config",
                 OLD_DIR / "hostgroup-ldif/hostgroup-ldif.conf",
-                "--force",
             ],
             destdir=OLD_DESTDIR / "hostgroup-ldif",
             encoding="latin-1",
@@ -271,7 +301,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "hosts-ldif/hosts-ldif.py",
                 "--config",
                 OLD_DIR / "hosts-ldif/hosts-ldif.conf",
-                # "--force-check",
             ],
             destdir=OLD_DESTDIR / "hosts-ldif",
             # encoding="latin-1",
@@ -312,7 +341,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-hostinfo/get-hostinfo.py",
                 "--config",
                 OLD_DIR / "get-hostinfo/get-hostinfo.conf",
-                "--force",
             ],
             destdir=OLD_DESTDIR / "get-hostinfo",
             encoding="latin-1",
@@ -333,7 +361,6 @@ ALL_COMMANDS: list[DiffTarget] = [
                 OLD_DIR / "get-hostpolicy/get-hostpolicy.py",
                 "--config",
                 OLD_DIR / "get-hostpolicy/get-hostpolicy.conf",
-                "--force",
             ],
             destdir=OLD_DESTDIR / "get-hostpolicy",
             encoding="latin-1",
@@ -359,8 +386,6 @@ ALL_COMMANDS: list[DiffTarget] = [
     ),
 ]
 
-console = Console(highlight=False)
-
 
 def normalize(path: Path, encoding: str = "utf-8") -> list[str]:
     """Remove empty lines, leading/trailing whitespace, and sort lines for consistent comparison."""
@@ -373,16 +398,36 @@ def normalize(path: Path, encoding: str = "utf-8") -> list[str]:
 
 @final
 class Differ:
-    def __init__(self, target: DiffTarget, run_commands: bool) -> None:
+    def __init__(
+        self,
+        target: DiffTarget,
+        run_commands: bool,
+        force: bool = False,
+        ignore_size_change: bool = False,
+    ) -> None:
         self.new = target.new
         self.old = target.old
         self.name = target.name
+        self.command_info = target.info
+
+        # Command execution options
         self.run_commands = run_commands
+        self.force = force
+        self.ignore_size_change = ignore_size_change
 
     def run_command(self, command: CommandSpec) -> None:
-        cmd_str = command.command_str
+        args = command.command_args.copy()
+        if self.force and self.command_info.supports_force:
+            args.append("--force")
+        elif self.force and self.command_info.supports_force_check:
+            args.append("--force-check")
+        if self.ignore_size_change and self.command_info.supports_ignore_size_change:
+            args.append("--ignore-size-change")
+
+        cmd_str = " ".join(args)
+
         console.print(f"Running command: [bold blue]{cmd_str}[/]")
-        result = subprocess.run(command.command_args, text=True, capture_output=True)
+        result = subprocess.run(args, text=True, capture_output=True)
         if result.returncode != 0:
             console.print(
                 f"[bold red]Command failed with exit code {result.returncode}[/]"
@@ -516,6 +561,16 @@ def main(
             show_default=False,
         ),
     ] = None,
+    force: Annotated[
+        bool, typer.Option("--force", help="Pass --force to all compatible commands")
+    ] = True,
+    ignore_size_change: Annotated[
+        bool,
+        typer.Option(
+            "--ignore-size-change",
+            help="Pass --ignore-size-change to all compatible commands",
+        ),
+    ] = True,
 ) -> None:
     # Only wipe directories if we are going to run commands
     # It makes no sense to wipe directories if we are just comparing
@@ -535,7 +590,12 @@ def main(
     to_run = [cmd for cmd in ALL_COMMANDS if cmd.command in commands]
 
     for target in to_run:
-        differ = Differ(target, run_commands=run_commands)
+        differ = Differ(
+            target,
+            run_commands=run_commands,
+            force=force,
+            ignore_size_change=ignore_size_change,
+        )
         differ.diff()
 
 
