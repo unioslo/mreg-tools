@@ -279,7 +279,7 @@ class ImportedTags:
 
 @dataclass
 class ImportedNetworks:
-    """Impored networks, categorized by IP version."""
+    """Imported networks, categorized by IP version."""
 
     ipv4: dict[str, ImportedNetwork] = field(default_factory=dict)
     ipv6: dict[str, ImportedNetwork] = field(default_factory=dict)
