@@ -16,6 +16,7 @@ from typing import Final
 from typing import Literal
 from typing import NoReturn
 from typing import Protocol
+from typing import TypedDict
 from typing import TypeVar
 from typing import final
 from typing import override
@@ -373,6 +374,25 @@ class NetworkChanges:
         )
 
 
+class NetworkPatchData(TypedDict):
+    """Data to compare when determining if a network needs to be patched."""
+
+    description: str
+    vlan: int | None
+    category: str
+    location: str
+
+
+def get_network_patch_data(network: Network | ImportedNetwork) -> NetworkPatchData:
+    """Get a dict of fields to compare imported networks with mreg networks."""
+    return NetworkPatchData(
+        description=network.description,
+        vlan=network.vlan,
+        category=network.category,
+        location=network.location,
+    )
+
+
 @dataclass
 class HostChanges:
     """Changes to be made to a host to align MREG with the imported network data."""
@@ -551,25 +571,18 @@ class NetworkImport(CommandBase[NetworkStorage]):
                     f"Network {network.network} in keep list not found in both mreg and import data"
                 )
 
-            # NOTE: this is a little inelegant and hacky, but we are comparing
-            # two different types of objects, so we need to convert them to a
-            # common format OR create some interface type and a comparison function
-            # which is more involved. That could be an option if this comparison
-            # needs to include more fields in the future.
-            new_data = {
-                "description": new_nw.description,
-                "vlan": new_nw.vlan,
-                "category": new_nw.category,
-                "location": new_nw.location,
-            }
-            current_data = {
-                "description": current_nw.description,
-                "vlan": current_nw.vlan,
-                "category": current_nw.category,
-                "location": current_nw.location,
-            }
-            if any(current_data[key] != new_data[key] for key in new_data):
-                plan.networks.patch.append((current_nw, new_data))
+            # Determine which fields (if any) need to be patched
+            new_data = get_network_patch_data(network)
+            current_data = get_network_patch_data(current_nw)
+
+            patch_data: dict[str, Any] = {}
+            for key, new_value in new_data.items():
+                if new_value != current_data[key]:
+                    patch_data[key] = new_value
+            if patch_data:
+                # TODO: add data structure for the actual patch data.
+                # ideally, it's just a NetworkPatchData with total=False
+                plan.networks.patch.append((current_nw, patch_data))
 
         return plan
 
