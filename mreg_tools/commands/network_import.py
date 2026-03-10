@@ -343,6 +343,29 @@ class HostDeletions:
         return len(self._entries)
 
 
+class NetworkPatchData(TypedDict, total=False):
+    """Fields to be updated on an existing network, with new values."""
+
+    description: str
+    vlan: int | None
+    category: str
+    location: str
+
+
+def compare_networks(existing: Network, new: ImportedNetwork) -> NetworkPatchData:
+    """Compare existing and new networks, return fields to patch."""
+    d = NetworkPatchData()
+    if existing.description != new.description:
+        d["description"] = new.description
+    if existing.vlan != new.vlan:
+        d["vlan"] = new.vlan
+    if existing.category != new.category:
+        d["category"] = new.category
+    if existing.location != new.location:
+        d["location"] = new.location
+    return d
+
+
 @dataclass()
 class NetworkChanges:
     """Changes to be made to align MREG with the imported network data."""
@@ -350,7 +373,7 @@ class NetworkChanges:
     keep: set[Network] = field(default_factory=set)
     create: set[ImportedNetwork] = field(default_factory=set)
     delete: set[Network] = field(default_factory=set)
-    patch: list[tuple[Network, dict[str, Any]]] = field(default_factory=list)
+    patch: list[tuple[Network, NetworkPatchData]] = field(default_factory=list)
 
     grow: defaultdict[ImportedNetwork, set[Network]] = field(
         default_factory=lambda: defaultdict(set)
@@ -372,25 +395,6 @@ class NetworkChanges:
             + len(self.grow)
             + len(self.shrink)
         )
-
-
-class NetworkPatchData(TypedDict):
-    """Data to compare when determining if a network needs to be patched."""
-
-    description: str
-    vlan: int | None
-    category: str
-    location: str
-
-
-def get_network_patch_data(network: Network | ImportedNetwork) -> NetworkPatchData:
-    """Get a dict of fields to compare imported networks with mreg networks."""
-    return NetworkPatchData(
-        description=network.description,
-        vlan=network.vlan,
-        category=network.category,
-        location=network.location,
-    )
 
 
 @dataclass
@@ -572,16 +576,7 @@ class NetworkImport(CommandBase[NetworkStorage]):
                 )
 
             # Determine which fields (if any) need to be patched
-            new_data = get_network_patch_data(network)
-            current_data = get_network_patch_data(current_nw)
-
-            patch_data: dict[str, Any] = {}
-            for key, new_value in new_data.items():
-                if new_value != current_data[key]:
-                    patch_data[key] = new_value
-            if patch_data:
-                # TODO: add data structure for the actual patch data.
-                # ideally, it's just a NetworkPatchData with total=False
+            if patch_data := compare_networks(network, new_nw):
                 plan.networks.patch.append((current_nw, patch_data))
 
         return plan
