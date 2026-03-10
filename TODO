@@ -2,7 +2,7 @@
 
 ## IMPORTANT
 
-## Figure out file name collisions between commands
+### Figure out file name collisions between commands
 
 `get-dhcphosts` and `get-zonefiles` both produce files named after zones/domains, which causes a collision if they output to the same directory. Use separate destdirs by default?
 
@@ -14,6 +14,23 @@
 ### Top-level exception handler
 
 Add a top level exception handler that catches all unhandled exceptions and logs them, so we have a log trail if something goes wrong. Should not catch `SystemExit`, since `exit_err` already logs (change this?).
+
+### Force flag semantics
+
+Find out if any scripts use `--force` to bypass file size checks, and if so, ensure new versions of scripts use `--ignore-size-change` flag for that purpose.
+
+### Network-ldif file permissions
+
+From the original shell script:
+
+```bash
+# User 'ldap' hardlinks the file, and needs write access to do so.
+# mreg-tools creates a read-only file, so we copy it.  (Todo: change that)
+umask 002
+rsync -t --chmod=ug=rw /ldap/var/mregsync/ldif/$basename.ldif /ldap/var/incoming/mreg/
+```
+
+We need to replicate this behavior in the new `network-ldif` script _or_ make a script with ansible that runs after `network-ldif` to change the permissions and copy the file to the correct location.
 
 ## General
 
@@ -36,6 +53,10 @@ Should we store old files in a separate directory instead of appending `_old` to
 ### Separate default output directories for different commands
 
 Commands such as `get-zonefiles` and `get-dhcphosts` should have separate default output directories to avoid file name collisions and make it easier to manage the output files.
+
+### Config validation error handling
+
+Loading of config should be wrapped in a try/except block. Where? In main callback or in `Config.load()`? If in `Config.load()`, should it raise a custom exception that we can catch in main and log with `exit_err`?
 
 ## Commands
 
