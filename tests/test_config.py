@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from ipaddress import IPv4Network
+from ipaddress import IPv6Network
 from typing import Any
 
 import pytest
@@ -13,6 +15,7 @@ from mreg_tools.config import FileLoggingConfig
 from mreg_tools.config import FileMode
 from mreg_tools.config import LdifSettings
 from mreg_tools.config import LoggingConfig
+from mreg_tools.config import NetworkImportConfig
 from mreg_tools.types import LogLevel
 
 
@@ -244,3 +247,47 @@ def test_file_mode_field_optional(
     # Test serialization
     serialized = config.model_dump()
     assert serialized["mode"] == expected
+
+
+@pytest.mark.parametrize(
+    "inp, expect_ip, expect_str",
+    [
+        # String with netmask
+        ("255.255.255.0/32", IPv4Network("255.255.255.0/32"), "255.255.255.0/32"),
+        ("::1/128", IPv6Network("::1/128"), "::1/128"),
+        # IPv4Network and IPv6Network objects
+        (
+            IPv4Network("255.255.255.0/32"),
+            IPv4Network("255.255.255.0/32"),
+            "255.255.255.0/32",
+        ),
+        (IPv6Network("::1/128"), IPv6Network("::1/128"), "::1/128"),
+        # String without netmask should default to /32 for IPv4 and /128 for IPv6
+        ("255.255.255.1", IPv4Network("255.255.255.1/32"), "255.255.255.1/32"),
+        ("::1", IPv6Network("::1/128"), "::1/128"),
+    ],
+)
+def test_network_import_config_dummy_ip_range_validation(
+    inp: str | IPv4Network | IPv6Network,
+    expect_ip: IPv4Network | IPv6Network,
+    expect_str: str,
+):
+    """Test that NetworkImportConfig dummy_ip_range field behavior and validation."""
+    # Valid input (ipv4 string)
+    config = NetworkImportConfig(dummy_ip_range=inp)  # pyright: ignore[reportArgumentType]
+    assert config.dummy_ip_range == expect_ip
+    assert str(config.dummy_ip_range) == expect_str
+
+
+def test_network_import_config_dummy_ip_range_default():
+    """Test default NetworkImportConfig dummy_ip_range."""
+    config = NetworkImportConfig()
+    assert config.dummy_ip_range == snapshot(IPv4Network("255.255.255.0/32"))
+    assert str(config.dummy_ip_range) == snapshot("255.255.255.0/32")
+
+
+def test_network_import_config_dummy_ip_range_invalid():
+    """Test that NetworkImportConfig dummy_ip_range field raises validation error for invalid input."""
+    # Invalid input raises validation error
+    with pytest.raises(ValueError, match="not a valid IPv4 or IPv6 network"):
+        NetworkImportConfig(dummy_ip_range="invalid")  # pyright: ignore[reportArgumentType]

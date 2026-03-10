@@ -841,17 +841,13 @@ class NetworkImport(CommandBase[NetworkStorage]):
             oldnets = sort_networks(oldnets)
             smallest_net = oldnets.pop()
             for oldnet in oldnets:
-                # NOTE: Original comment left in place here:
-                # If the new network replaces multiple old ones, then first
-                # patch the range to a not-in-use range and then delete. To
-                # work around delete restrictions.
+                # NOTE: in order to delete a network with IP addresses in-use,
+                # without having to delete its IP addresses, we must first
+                # patch the network to a dummy network range not in use.
                 if not self.command_config.dryrun:
-                    # NOTE: changed in mreg-tools v2: Only patches range if
-                    # we know we have an IPv4 network
-                    if oldnet.ip_network.version == 4:
-                        oldnet = oldnet.patch(
-                            {"network": self.command_config.dummy_range_ipv4}
-                        )
+                    oldnet = oldnet.patch(
+                        {"network": str(self.command_config.dummy_ip_range)}
+                    )
                     oldnet.delete()
                 log.info(
                     "Removed network to make room for larger network",

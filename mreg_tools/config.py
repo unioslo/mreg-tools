@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+from ipaddress import IPv4Network
 from pathlib import Path
 from typing import Annotated
 from typing import Any
@@ -16,6 +17,7 @@ from pydantic import AliasChoices
 from pydantic import BaseModel
 from pydantic import BeforeValidator
 from pydantic import Field
+from pydantic import IPvAnyNetwork
 from pydantic import SecretStr
 from pydantic import field_validator
 from pydantic import model_validator
@@ -367,9 +369,9 @@ class NetworkImportConfig(CommandConfig):
         description="Maximum allowed size change in percent for the network import",
     )
     # TODO: add validation for this field?
-    dummy_range_ipv4: str = Field(
-        default="255.255.255.0/32",
-        description="Dummy range to patch replaced IPv4 networks with before deleting when grown over.",
+    dummy_ip_range: IPvAnyNetwork = Field(
+        default=IPv4Network("255.255.255.0/32"),
+        description="Dummy range to patch replaced networks with before deleting when grown over.",
     )
 
 
