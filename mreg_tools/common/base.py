@@ -221,9 +221,8 @@ class CommandBase(ABC, Generic[DataT]):
         """
         return True
 
-    # TODO: ensure this method is called before run() and only once!
     def init_data(self) -> None:
-        """Load saved data from disk sand fetch new data if needed.
+        """Load saved data from disk and fetch new data if needed.
 
         Should be called before calling `run()`.
         """
@@ -267,7 +266,7 @@ class CommandBase(ABC, Generic[DataT]):
         # Check if data is up to date
         for mreg_data in self.data:
             data_logger = self.logger.bind(mreg_data=mreg_data.name)
-            data_logger.debug("Checking")
+            data_logger.debug("Checking data freshness")
 
             # Explicit check to ensure we don't get index errors
             if not mreg_data.data:

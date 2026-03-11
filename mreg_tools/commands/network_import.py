@@ -524,8 +524,7 @@ class NetworkImport(CommandBase[NetworkStorage]):
             if nw_addr not in import_data:
                 plan.networks.delete.add(network)
 
-        # Check if a network slated for removal is an existing network
-        # that is being resized via growing/shrinking its size
+        # Check if a network slated for removal is should be resized instead
         for existing in plan.networks.delete:
             for new in plan.networks.create:
                 # FIXME: Ensure IP versions are identical
