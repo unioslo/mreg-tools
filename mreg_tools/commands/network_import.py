@@ -533,7 +533,8 @@ class NetworkImport(CommandBase[NetworkStorage]):
                 elif existing.ip_network.supernet_of(new.ip_network):
                     plan.networks.shrink[existing].add(new)
 
-        # Remove networks that are being resized from delete and create lists, and add to grow/shrink lists
+        # Remove networks that are being resized from delete and create lists,
+        # and instead add them to lists of networks to grow or shrink.
         for newnet, oldnets in plan.networks.grow.items():
             plan.networks.delete -= oldnets
             plan.networks.create.remove(newnet)
