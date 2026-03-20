@@ -63,3 +63,27 @@ Loading of config should be wrapped in a try/except block. Where? In main callba
 ### hosts-ldif
 
 * Add filtering by zone (unused in prod, but existed in old script)
+
+----
+
+## MREG Server
+
+Below are some possible improvements to the MREG server that would make the scripts simpler and more robust.
+
+### Atomic endpoint for growing networks
+
+Currently, in order to grow a network to encompass one or more existing networks, we do the following:
+
+1. Determine which networks overlap with the new network
+2. For each overlapping network apart from the first (see step 3), patch it with a dummy IP range and delete the original network (IPs remain!)
+3. Patch the "first" overlapping network (sorted by IP range) with the new, larger range.
+
+Without atomicity, failure in steps 2 or 3 can lead to broken networks and orphaned IPs. With atomicity, we could define the range of a new network and issue a single API request that grows the "first" network and deletes the rest.
+
+The way I see it, we could do this one of two ways:
+
+1. Endpoint requires specific networks to grow over, requiring the user to identify the networks that will be replaced by the larger network.
+
+2. Endpoint is automatic. A range is specified and all networks within that range (within a reasonable limit) are replaced.
+
+For both options, optionally the user can specify which network will be "grown" (keeping its description, vlan, created date, id, etc.) or it can be determined automatically by the "first" network like we do currently in mreg-tools.
