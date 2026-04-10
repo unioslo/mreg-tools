@@ -4,8 +4,8 @@ build-backend = "uv_build"
 
 [project]
 name = "mreg-tools"
-version = "1.0.0"
-description = "Various scripts for use with mreg"
+version = "2.0.0"
+description = "Various utilities for MREG automation"
 readme = "README.md"
 maintainers = [
     # Active maintainers
