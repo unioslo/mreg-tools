@@ -33,7 +33,7 @@ from mreg_tools.constants import DEFAULT_LOGDIR
 from mreg_tools.constants import DEFAULT_WORKDIR
 from mreg_tools.output.theme import CliTheme
 from mreg_tools.types import DhcpHostsType
-from mreg_tools.types import LDIFEntryValue
+from mreg_tools.types import LDIFEntry
 from mreg_tools.types import LogLevel
 
 logger = structlog.stdlib.get_logger()
@@ -208,6 +208,16 @@ class CommandConfig(BaseModel):
         return v
 
 
+class LDIFHeadEntry(LDIFEntry):
+    """Structure for the head entry in LDIF exports."""
+
+    dn: str
+    cn: str
+    description: str
+    ou: str
+    objectClass: list[str]
+
+
 class LdifSettings(BaseModel):
     """LDIF-specific settings for LDAP export commands."""
 
@@ -229,7 +239,7 @@ class LdifSettings(BaseModel):
             v = [v]
         return v
 
-    def as_head_entry(self) -> dict[str, LDIFEntryValue]:
+    def as_head_entry(self) -> LDIFHeadEntry:
         """Return the LDIF head entry as a dictionary of LDIF entry primitive values."""
         return {
             "dn": self.dn,

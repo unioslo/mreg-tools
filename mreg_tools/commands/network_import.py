@@ -16,7 +16,6 @@ from typing import Final
 from typing import Literal
 from typing import NoReturn
 from typing import Protocol
-from typing import TypedDict
 from typing import TypeVar
 from typing import final
 from typing import override
@@ -30,6 +29,7 @@ from mreg_api.models import Network
 from mreg_api.models import PTR_override
 from mreg_api.types import IP_AddressT
 from mreg_api.types import IP_NetworkT
+from typing_extensions import TypedDict
 
 from mreg_tools.app import app
 from mreg_tools.common.base import CommandBase

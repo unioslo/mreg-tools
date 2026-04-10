@@ -4,7 +4,6 @@ import io
 from typing import Annotated
 from typing import Final
 from typing import NotRequired
-from typing import TypedDict
 from typing import final
 from typing import override
 
@@ -20,6 +19,7 @@ from mreg_tools.common.ldif import entry_string
 from mreg_tools.common.ldif import to_iso646_60
 from mreg_tools.config import Config
 from mreg_tools.config import HostGroupLdifConfig
+from mreg_tools.types import LDIFEntry
 
 COMMAND_NAME: Final[str] = "hostgroup-ldif"
 
@@ -27,7 +27,7 @@ COMMAND_NAME: Final[str] = "hostgroup-ldif"
 logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
-class HostGroupLdifEntry(TypedDict):
+class HostGroupLdifEntry(LDIFEntry):
     """Host group LDIF entry structure."""
 
     dn: str

@@ -4,7 +4,6 @@ import io
 from typing import Annotated
 from typing import Final
 from typing import NotRequired
-from typing import TypedDict
 from typing import final
 from typing import override
 
@@ -22,6 +21,7 @@ from mreg_tools.common.ldif import LDIFBase
 from mreg_tools.common.ldif import entry_string
 from mreg_tools.config import Config
 from mreg_tools.config import HostsLdifConfig
+from mreg_tools.types import LDIFEntry
 
 COMMAND_NAME: Final[str] = "hosts-ldif"
 
@@ -29,7 +29,7 @@ COMMAND_NAME: Final[str] = "hosts-ldif"
 logger = structlog.stdlib.get_logger(command=COMMAND_NAME)
 
 
-class HostLDIFEntry(TypedDict):
+class HostLDIFEntry(LDIFEntry):
     """Host LDIF entry structure."""
 
     dn: str

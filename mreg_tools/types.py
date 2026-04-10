@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
+from typing import ReadOnly
 from typing import Self
 
-type LDIFEntryValue = str | int | Sequence[str] | Sequence[int]
-type LDIFEntry = Mapping[str, str | int | Sequence[str] | Sequence[int]]
+from typing_extensions import TypedDict
+
+type LDIFEntryValue = str | int | Sequence[str] | Sequence[int] | None
+
+
+class LDIFEntry(TypedDict, extra_items=ReadOnly[LDIFEntryValue]):
+    """Host group LDIF entry structure."""
+
+    dn: str
 
 
 class LogLevel(StrEnum):
