@@ -19,14 +19,19 @@ needs_base64 = re.compile(r"\A[\s:<]|[\0-\37\177]|\s\Z").search
 
 
 def handle_value(attr: str, value: str | int) -> str:
-    # Ignore empty values
-    if isinstance(value, str) and not value:
-        return ""
-    if isinstance(value, str) and needs_base64(value):
-        value = str(b64encode(value.encode("utf-8")), "utf-8")
-        return f"{attr}:: {value}\n"
-    else:
-        return f"{attr}: {value}\n"
+    """Format an LDIF attribute-value pair, encoding as base64 if necessary.
+
+    Returns empty string if input value is an empty string.
+    """
+    if isinstance(value, str):
+        # Empty string -> return nothing
+        if not value:
+            return ""
+        # Special characters -> encode as base64 (denote with ::)
+        elif needs_base64(value):
+            value = str(b64encode(value.encode("utf-8")), "utf-8")
+            return f"{attr}:: {value}\n"
+    return f"{attr}: {value}\n"
 
 
 def entry_string(entry: LDIFEntry) -> str:
