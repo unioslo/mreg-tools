@@ -258,21 +258,24 @@ wheels = [
 
 [[package]]
 name = "mreg-api"
-version = "0.1.2.dev27+g596b2264e"
-source = { git = "https://github.com/unioslo/mreg-api#596b2264e8c825fe089f2d1541a9577642a1e2e5" }
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "diskcache" },
     { name = "httpx", extra = ["socks"] },
-    { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pydantic-extra-types" },
     { name = "pydantic-settings" },
     { name = "typing-extensions" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/5d/e8/2577d1d9b37fe6da434ce0341d4ee9c9ef89fa9b1c86619d8ad8210f8ad2/mreg_api-0.2.0.tar.gz", hash = "sha256:4bbfcca6eaff604407a1c593aff54a840dfab49eb0597926ff24eb03b6185c81", size = 154556, upload-time = "2026-04-16T10:40:58.927Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/6f/e9bd687a8b99aa3636278926ad15924b8f8ff84306788a45861bde301078/mreg_api-0.2.0-py3-none-any.whl", hash = "sha256:1266cfdb2460616a9ed7b5e8b39bbaa038f89e253a400b7f28bbd18efa66543c", size = 84334, upload-time = "2026-04-16T10:40:57.365Z" },
+]
 
 [[package]]
 name = "mreg-tools"
-version = "1.0.0"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "dnspython" },
@@ -302,7 +305,7 @@ requires-dist = [
     { name = "fasteners", specifier = ">=0.20.0" },
     { name = "intervaltree", specifier = ">=3.2.1" },
     { name = "iso8601", specifier = ">=2.1.0" },
-    { name = "mreg-api", git = "https://github.com/unioslo/mreg-api" },
+    { name = "mreg-api", specifier = ">=0.2.0,<0.3.0" },
     { name = "platformdirs", specifier = ">=4.5.1" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },

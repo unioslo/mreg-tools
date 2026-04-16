@@ -29,6 +29,8 @@ from mreg_api.models import Network
 from mreg_api.models import PTR_override
 from mreg_api.types import IP_AddressT
 from mreg_api.types import IP_NetworkT
+from mreg_api.types import Json
+from typing_extensions import ReadOnly
 from typing_extensions import TypedDict
 
 from mreg_tools.app import app
@@ -343,7 +345,8 @@ class HostDeletions:
         return len(self._entries)
 
 
-class NetworkPatchData(TypedDict, total=False):
+# NOTE: why total=False in this case? (Problem: it requires extra_items to pass type checking)  # noqa: E501
+class NetworkPatchData(TypedDict, total=False, extra_items=ReadOnly[Json]):
     """Fields to be updated on an existing network, with new values."""
 
     description: str
