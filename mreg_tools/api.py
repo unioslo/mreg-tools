@@ -3,6 +3,7 @@ from __future__ import annotations
 from mreg_api import MregClient
 from mreg_api.exceptions import LoginFailedError
 
+from mreg_tools.__about__ import __version__
 from mreg_tools.config import MregConfig
 from mreg_tools.output import exit_err
 
@@ -11,6 +12,7 @@ def _get_client(config: MregConfig) -> MregClient:
     """Create an MregClient from an MregConfig."""
     MregClient.reset_instance()
     return MregClient(
+        user_agent=f"mreg-tools/{__version__}",
         url=config.url,
         timeout=600,  # TODO: make configurable
         page_size=config.page_size,
