@@ -13,6 +13,9 @@ jobs:
         python-version:
           - "3.13"
           - "3.14"
+    env:
+      # Disable colors and formatting in Rich console output
+      TERM: dumb
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
