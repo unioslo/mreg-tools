@@ -42,7 +42,10 @@ class GetFunc(Protocol, Generic[T]):
     """Function to fetch all results for a given MREG resource type."""
 
     def __call__(
-        self, params: QueryParams | None = None, limit: int | None = None
+        self,
+        *,
+        limit: int | None = None,
+        **query: str | int | float | bool | None,
     ) -> list[T]: ...
 
 
@@ -81,7 +84,7 @@ class MregData(Generic[T]):
     def fetch(self) -> None:
         """Fetch data from MREG using the provided get_func. Populates `data` in-place."""
         logger.debug("Fetching data from MREG", resource=self.name)
-        self.data = self.get_func(limit=None, params={"ordering": "name"})
+        self.data = self.get_func(limit=None, ordering="name")
 
     def dump(self, directory: Path) -> None:
         """Dump data to a JSON file.

@@ -8,6 +8,7 @@ from mreg_api.models import IPAddress
 from mreg_api.models import Network
 
 from mreg_tools.commands.network_import import ImportedNetwork
+from mreg_tools.commands.network_import import NetworkUpdateData
 from mreg_tools.commands.network_import import UnremovableNetwork
 
 
@@ -69,3 +70,31 @@ Network 0.0.0.0/24 can not be removed due to:
 	reason1
 	reason2\
 """)
+
+
+def test_imported_network_asdict_is_network_patch_data():
+    """Test that ImportedNetwork.asdict() returns a dictionary compatible with NetworkPatchData."""
+    i = ImportedNetwork(
+        network="127.0.0.0/24",
+        description="Test network",
+        category="t1",
+        location="tst",
+        vlan=123,
+    )
+    asdict_result = i.asdict()
+
+    # NetworkPatchData keys are _all_ possible keys that can be passed to the network update method.
+    # An ImportedNetwork (currently) matches the keys of NetworkPatchData.
+    # which means it's safe to pass an ImportedNetwork's asdict() result directly to a network update method.
+    patch_data_keys = NetworkUpdateData.__annotations__.keys()
+    assert set(asdict_result.keys()) == set(patch_data_keys)
+
+    assert asdict_result == snapshot(
+        {
+            "network": "127.0.0.0/24",
+            "description": "Test network",
+            "vlan": 123,
+            "category": "t1",
+            "location": "tst",
+        }
+    )

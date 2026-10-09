@@ -45,17 +45,17 @@ class GetZoneFiles(CommandBase[ZoneDataStorage]):
                 name="forward_zones",
                 type=ForwardZone,
                 default=[],
-                first_func=self.client.forward_zone.get_first,
-                get_func=self.client.forward_zone.get_list,
-                count_func=self.client.forward_zone.get_count,
+                first_func=self.client.zone.forward.first,
+                get_func=self.client.zone.forward.list,
+                count_func=self.client.zone.forward.count,
             ),
             reverse_zones=MregData(
                 name="reverse_zones",
                 type=ReverseZone,
                 default=[],
-                first_func=self.client.reverse_zone.get_first,
-                get_func=self.client.reverse_zone.get_list,
-                count_func=self.client.reverse_zone.get_count,
+                first_func=self.client.zone.reverse.first,
+                get_func=self.client.zone.reverse.list,
+                count_func=self.client.zone.reverse.count,
             ),
         )
 
@@ -119,9 +119,9 @@ class GetZoneFiles(CommandBase[ZoneDataStorage]):
         """Create the zone file for a given zone, with an option to exclude private address ranges."""
         contents = io.StringIO()
 
-        zonefile = self.client.zonefile.get_by_name_or_raise(
-            zone.name, exclude_private=exclude_private
-        )
+        zonefile = self.client.zone.zone_file(zone.name, exclude_private=exclude_private)
+        if not zonefile:  # TODO: remove this check when upgrading to mreg-api 0.7.0
+            raise ValueError(f"Zone file for {zone.name} could not be retrieved")
         contents.write(zonefile)
 
         # NOTE: we look up data based on the destname, _not_ the name of the zone!

@@ -39,9 +39,9 @@ class GetHostInfo(CommandBase[HostDataStorage]):
                 name="hosts",
                 type=Host,
                 default=[],
-                first_func=self.client.host.get_first,
-                get_func=self.client.host.get_list,
-                count_func=self.client.host.get_count,
+                first_func=self.client.host.first,
+                get_func=self.client.host.list,
+                count_func=self.client.host.count,
             )
         )
 

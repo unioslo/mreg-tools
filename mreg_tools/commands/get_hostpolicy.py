@@ -42,17 +42,17 @@ class GetHostPolicy(CommandBase[HostDataStorage]):
                 name="roles",
                 type=Role,
                 default=[],
-                first_func=self.client.role.get_first,
-                get_func=self.client.role.get_list,
-                count_func=self.client.role.get_count,
+                first_func=self.client.role.first,
+                get_func=self.client.role.list,
+                count_func=self.client.role.count,
             ),
             atoms=MregData(
                 name="atoms",
                 type=Atom,
                 default=[],
-                first_func=self.client.atom.get_first,
-                get_func=self.client.atom.get_list,
-                count_func=self.client.atom.get_count,
+                first_func=self.client.atom.first,
+                get_func=self.client.atom.list,
+                count_func=self.client.atom.count,
             ),
         )
 

@@ -56,9 +56,9 @@ class HostGroupLDIF(LDIFBase[HostGroupDataStorage]):
                 name="hostgroups",
                 type=HostGroup,
                 default=[],
-                first_func=self.client.host_group.get_first,
-                get_func=self.client.host_group.get_list,
-                count_func=self.client.host_group.get_count,
+                first_func=self.client.hostgroup.first,
+                get_func=self.client.hostgroup.list,
+                count_func=self.client.hostgroup.count,
             )
         )
         self.domain: str = self.config.mreg.domain

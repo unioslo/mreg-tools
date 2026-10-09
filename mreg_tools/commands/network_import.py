@@ -5,7 +5,6 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from collections.abc import Iterator
-from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
 from functools import cached_property
@@ -30,8 +29,10 @@ from mreg_api.models import PTR_override
 from mreg_api.types import IP_AddressT
 from mreg_api.types import IP_NetworkT
 from mreg_api.types import Json
+from typing_extensions import NotRequired
 from typing_extensions import ReadOnly
 from typing_extensions import TypedDict
+from typing_extensions import Unpack
 
 from mreg_tools.app import app
 from mreg_tools.common.base import CommandBase
@@ -245,6 +246,9 @@ def read_tags_file(filename: Path) -> ImportedTags:
 # TODO: refactor all datastructures to be indepdendent of IP version?
 
 
+# NOTE: This class is _very_ similar to NetworkUpdateData, but has some extra
+# methods handling IP version, and, crucially, its fields are all required, while
+# NetworkUpdateData _only_ contains optional fields.
 @dataclass(frozen=True)
 class ImportedNetwork:
     """An imported network from a network file."""
@@ -267,9 +271,19 @@ class ImportedNetwork:
         """Return the IP version of the network."""
         return self.ip_network.version
 
-    def asdict(self) -> dict[str, Any]:
-        """Return a dict representation of the imported network."""
-        return asdict(self)
+    def asdict(self) -> NetworkUpdateData:
+        """Return a dict representation of the imported network.
+
+        Uses `NetworkUpdateData` as the return type to ensure parity with
+        the API representation of a network.
+        """
+        return NetworkUpdateData(
+            network=self.network,
+            description=self.description,
+            vlan=self.vlan,
+            category=self.category,
+            location=self.location,
+        )
 
 
 @dataclass
@@ -346,18 +360,19 @@ class HostDeletions:
 
 
 # NOTE: why total=False in this case? (Problem: it requires extra_items to pass type checking)  # noqa: E501
-class NetworkPatchData(TypedDict, total=False, extra_items=ReadOnly[Json]):
+class NetworkUpdateData(TypedDict, total=False, extra_items=ReadOnly[Json]):
     """Fields to be updated on an existing network, with new values."""
 
-    description: str
-    vlan: int | None
-    category: str
-    location: str
+    network: NotRequired[str]
+    description: NotRequired[str]
+    vlan: NotRequired[int | None]
+    category: NotRequired[str]
+    location: NotRequired[str]
 
 
-def compare_networks(existing: Network, new: ImportedNetwork) -> NetworkPatchData:
-    """Compare existing and new networks, return fields to patch."""
-    d = NetworkPatchData()
+def compare_networks(existing: Network, new: ImportedNetwork) -> NetworkUpdateData:
+    """Compare existing and new networks, return fields to update."""
+    d = NetworkUpdateData()
     if existing.description != new.description:
         d["description"] = new.description
     if existing.vlan != new.vlan:
@@ -376,7 +391,7 @@ class NetworkChanges:
     keep: set[Network] = field(default_factory=set)
     create: set[ImportedNetwork] = field(default_factory=set)
     delete: set[Network] = field(default_factory=set)
-    patch: list[tuple[Network, NetworkPatchData]] = field(default_factory=list)
+    patch: list[tuple[Network, NetworkUpdateData]] = field(default_factory=list)
 
     grow: defaultdict[ImportedNetwork, set[Network]] = field(
         default_factory=lambda: defaultdict(set)
@@ -440,9 +455,9 @@ class NetworkImport(CommandBase[NetworkStorage]):
                 name="networks",
                 type=Network,
                 default=[],
-                first_func=self.client.network.get_first,
-                get_func=self.client.network.get_list,
-                count_func=self.client.network.get_count,
+                first_func=self.client.network.first,
+                get_func=self.client.network.list,
+                count_func=self.client.network.count,
             )
         )
 
@@ -622,21 +637,19 @@ class NetworkImport(CommandBase[NetworkStorage]):
 
         # TODO: re-use ptrs and used-list retrieved in `is_empty_network()`
         # We re-fetch here, which is not ideal.
-        ptr_list = oldnet.get_ptr_overrides()
-        used_list = oldnet.get_used_list()
+        ptr_list = self.client.network.get_ptr_overrides(oldnet)
+        used_list = self.client.network.get_used_list(oldnet)
 
         ptrs = ips_not_in_newnets(ptr_list)
         ips = ips_not_in_newnets(used_list)
 
         problem_hosts = dict[str, Host]()
         for ptr in ptrs:
-            host = self.client.host.get_by_query_unique_or_raise(
-                {"ptr_overrides__ipaddress": str(ptr)}
-            )
+            host = self.client.host.first(ptr_overrides__ipaddress=str(ptr))
             problem_hosts[host.name] = host
 
         for ip in ips:
-            hosts = self.client.host.get_list({"ipaddresses__ipaddress": str(ip)})
+            hosts = self.client.host.list(ipaddresses__ipaddress=str(ip))
             for host in hosts:
                 problem_hosts[host.name] = host
 
@@ -707,8 +720,8 @@ class NetworkImport(CommandBase[NetworkStorage]):
 
     def is_empty_network(self, network: Network) -> bool:
         """Determine if a network is empty."""
-        used_list = network.get_used_list()
-        ptr_list = network.get_ptr_overrides()
+        ptr_list = self.client.network.get_ptr_overrides(network)
+        used_list = self.client.network.get_used_list(network)
         if len(used_list) == 0 and len(ptr_list) == 0:
             return True
         # # NOTE: Why do we need to do this check?
@@ -786,49 +799,64 @@ class NetworkImport(CommandBase[NetworkStorage]):
 
             for ip in host.ips:
                 if not self.dryrun:
-                    ip.delete()
+                    self.client.ipaddress.delete(ip)
                 log.info("Deleted IP address", ipaddress=ip.ipaddress)
             for ptr in host.ptrs:
                 if not self.dryrun:
-                    ptr.delete()
+                    self.client.ptroverride.delete(ptr)
                 log.info("Deleted PTR override", ipaddress=ptr.ipaddress)
             if host.delete_host:
                 if not self.dryrun:
-                    host.host.delete()
+                    self.client.host.delete(host.host)
                 log.info("Deleted host")
 
     def create_networks(self, plan: SyncPlan) -> None:
         """Create new MREG networks according to the sync plan."""
         for network in sort_networks(plan.networks.create):
-            if not self.command_config.dryrun:
-                self.client.network.create(network.asdict())
-            self.logger.info(
-                "Created network",
-                network=network.network,
-                description=network.description,
-            )
+            self._create_network(network)
 
     def delete_networks(self, plan: SyncPlan) -> None:
         """Delete existing MREG networks according to the sync plan."""
         for network in plan.networks.delete:
-            if not self.dryrun:
-                network.delete()
-            self.logger.info(
-                "Deleted network",
+            self._delete_network(network)
+
+    # Centralize all Network mutation in these private methods to ensure:
+    # 1. Consistent use of network IDs for updates and deletions.
+    # 2. Proper handling of dry-run mode.
+    # 3. Logging of all network changes.
+    def _create_network(self, network: ImportedNetwork) -> None:
+        """Update a network with the given keyword arguments."""
+        if not self.command_config.dryrun:
+            self.client.network.create(
                 network=network.network,
                 description=network.description,
+                vlan=network.vlan,
+                category=network.category,
+                location=network.location,
             )
+        self.logger.info("Created network", network=network.asdict())
+
+    # NOTE: Update and delete operations always use network IDs to ensure no ambiguity
+    # arises from mutable network addresses. A modified network upstream will have
+    # its URL changed, so we must ensure we always refer to networks by their IDs.
+    def _update_network(self, nw: Network, **kwargs: Unpack[NetworkUpdateData]) -> None:
+        """Update a network with the given keyword arguments."""
+        if not self.command_config.dryrun:
+            self.client.network.update(nw.id, **kwargs)
+        self.logger.info(
+            "Updated network", network_id=nw.id, network=nw.network, new_data=kwargs
+        )
+
+    def _delete_network(self, nw: Network) -> None:
+        """Delete a network."""
+        if not self.command_config.dryrun:
+            self.client.network.delete(nw.id)
+        self.logger.info("Deleted network", network_id=nw.id, network=nw.network)
 
     def patch_networks(self, plan: SyncPlan) -> None:
         """Patch existing MREG networks according to the sync plan."""
         for network, new_data in plan.networks.patch:
-            if not self.command_config.dryrun:
-                # TODO: use ImportedNetwork.asdict() here instead of passing
-                # in a dict? Need to refactor NetworkModifications.patch for that.
-                network.patch(new_data)
-            self.logger.info(
-                "Updated network", network=network.network, new_data=new_data
-            )
+            self._update_network(network, **new_data)
 
     def grow_networks(self, plan: SyncPlan):
         """Grow existing networks to fit their new sizes in imported data."""
@@ -847,19 +875,21 @@ class NetworkImport(CommandBase[NetworkStorage]):
                 # NOTE: in order to delete a network with IP addresses in-use,
                 # without having to delete its IP addresses, we must first
                 # patch the network to a dummy network range not in use.
-                if not self.command_config.dryrun:
-                    oldnet = oldnet.patch(
-                        {"network": str(self.command_config.dummy_ip_range)}
-                    )
-                    oldnet.delete()
+                self._update_network(
+                    oldnet, network=str(self.command_config.dummy_ip_range)
+                )
+                self._delete_network(oldnet)
                 log.info(
                     "Removed network to make room for larger network",
-                    oldnet=oldnet.network,
+                    network=oldnet.network,
                 )
 
-            if not self.command_config.dryrun:
-                smallest_net.patch(newnet.asdict())
-            log.info("Grew existing network.", oldnet=smallest_net.network)
+            self._update_network(smallest_net, **newnet.asdict())
+            log.info(
+                "Grew existing network.",
+                before=smallest_net.network,
+                after=newnet.network,
+            )
 
     def shrink_networks(self, plan: SyncPlan) -> None:
         """Shrink existing networks to fit new imported networks.
@@ -879,14 +909,16 @@ class NetworkImport(CommandBase[NetworkStorage]):
 
             for i, newnet in enumerate(newnets):
                 # Shrink the existing network down to the size of the first imported network
-                # then create new networks with from the remaining imported networks
+                # then create new networks from the remaining imported networks
                 if i == 0:
-                    if not self.command_config.dryrun:
-                        oldnet.patch(newnet.asdict())
-                    log.info("Shrunk existing network", newnet=newnet.network)
+                    self._update_network(oldnet, **newnet.asdict())
+                    log.info(
+                        "Shrunk existing network",
+                        before=oldnet.network,
+                        after=newnet.network,
+                    )
                 else:
-                    if not self.command_config.dryrun:
-                        self.client.network.create(newnet.asdict())
+                    self._create_network(newnet)
                     log.info("Created new network in shrunk range", newnet=newnet.network)
 
 

@@ -58,9 +58,9 @@ class NetworkLDIF(LDIFBase[NetworkDataStorage]):
                 name="networks",
                 type=Network,
                 default=[],
-                first_func=self.client.network.get_first,
-                get_func=self.client.network.get_list,
-                count_func=self.client.network.get_count,
+                first_func=self.client.network.first,
+                get_func=self.client.network.list,
+                count_func=self.client.network.count,
             )
         )
 

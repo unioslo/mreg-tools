@@ -69,27 +69,27 @@ class GetDhcpHosts(CommandBase[DhcpHostStorage]):
                 name="dhcp_hosts_ipv4",
                 type=DhcpHostIPv4,
                 default=[],
-                first_func=self.client.dhcp_host_ipv4.get_first,
-                get_func=self.client.dhcp_host_ipv4.get_list,
-                count_func=self.client.dhcp_host_ipv4.get_count,
+                first_func=self.client.dhcphostipv4.first,
+                get_func=self.client.dhcphostipv4.list,
+                count_func=self.client.dhcphostipv4.count,
             )
         elif hosts_type == DhcpHostsType.IPV6:
             dhcp_hosts = MregData(
                 name="dhcp_hosts_ipv6",
                 type=DhcpHostIPv6,
                 default=[],
-                first_func=self.client.dhcp_host_ipv6.get_first,
-                get_func=self.client.dhcp_host_ipv6.get_list,
-                count_func=self.client.dhcp_host_ipv6.get_count,
+                first_func=self.client.dhcphostipv6.first,
+                get_func=self.client.dhcphostipv6.list,
+                count_func=self.client.dhcphostipv6.count,
             )
         elif hosts_type == DhcpHostsType.IPV6BYIPV4:
             dhcp_hosts = MregData(
                 name="dhcp_hosts_ipv6byipv4",
                 type=DhcpHostIPv6ByIPv4,
                 default=[],
-                first_func=self.client.dhcp_host_ipv6byipv4.get_first,
-                get_func=self.client.dhcp_host_ipv6byipv4.get_list,
-                count_func=self.client.dhcp_host_ipv6byipv4.get_count,
+                first_func=self.client.dhcphostipv6byipv4.first,
+                get_func=self.client.dhcphostipv6byipv4.list,
+                count_func=self.client.dhcphostipv6byipv4.count,
             )
         else:
             raise ValueError(f"Invalid hosts type: {hosts_type}")
